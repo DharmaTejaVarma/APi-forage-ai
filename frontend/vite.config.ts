@@ -22,6 +22,38 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
+      '/auth': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/connections': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/endpoints': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/workflows': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/executions': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/dashboard': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/admin': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/mock': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
     },
   },
 });

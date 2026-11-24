@@ -13,7 +13,7 @@ import {
   AuditLog,
 } from '../types';
 
-const BASE_URL = '';
+const BASE_URL = '/api';
 
 function getAuthHeader(): Record<string, string> {
   const token = localStorage.getItem('apiforge_token');
@@ -54,7 +54,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const api = {
   // Authentication
   login: async (formData: URLSearchParams): Promise<AuthResponse> => {
-    const res = await fetch('/auth/token', {
+    const res = await fetch(`${BASE_URL}/auth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData,
