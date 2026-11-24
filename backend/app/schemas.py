@@ -239,3 +239,31 @@ class AuditLogResponse(BaseModel):
     details: Optional[Dict[str, Any]] = None
     ip_address: Optional[str] = None
     created_at: datetime
+
+
+# ============================================================================
+# Error Diagnosis & Recovery Schemas (Rule 9)
+# ============================================================================
+
+class CandidateFixSchema(BaseModel):
+    fix_id: str
+    title: str
+    description: str
+    target_node_id: str
+    change_type: str
+    patch: Dict[str, Any]
+
+
+class ErrorDiagnosisResponse(BaseModel):
+    step_id: str
+    error_category: str
+    root_cause: str
+    explanation: str
+    candidate_fixes: List[CandidateFixSchema]
+    requires_user_approval: bool = True
+
+
+class ApplyFixRequest(BaseModel):
+    target_node_id: str
+    patch: Dict[str, Any]
+    resume: bool = True

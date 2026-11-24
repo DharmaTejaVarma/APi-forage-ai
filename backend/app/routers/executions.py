@@ -3,15 +3,18 @@ APIForge AI Workflow Executions Router
 Handles DAG workflow execution runs, status inspection, telemetry logs,
 and human-in-the-loop approval actions (Approve / Reject).
 """
+import copy
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.db import get_db
-from app.models import User, Workflow, WorkflowExecution, AuditLog, utc_now
-from app.schemas import WorkflowExecutionResponse
+from app.models import User, Workflow, WorkflowExecution, Endpoint, AuditLog, utc_now
+from app.schemas import WorkflowExecutionResponse, ErrorDiagnosisResponse, ApplyFixRequest
 from app.security import get_current_user
 from app.services.executor import DAGExecutor
+from app.services.error_agent import diagnose_step_failure
 
 router = APIRouter(tags=["Executions"])
 
@@ -217,3 +220,148 @@ def list_workflow_executions(
         .all()
     )
     return executions
+
+
+@router.post(
+    "/executions/{execution_id}/diagnose",
+    response_model=ErrorDiagnosisResponse,
+    summary="Diagnose step failure and propose candidate fixes (Rule 9)",
+)
+async def diagnose_execution(
+    execution_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Invoke AI error recovery agent (qwen2.5:7b-instruct) on a failed step.
+    NON-NEGOTIABLE RULE 9: Fixes are candidate proposals only.
+    """
+    execution = (
+        db.query(WorkflowExecution)
+        .filter(WorkflowExecution.id == execution_id, WorkflowExecution.user_id == current_user.id)
+        .first()
+    )
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Execution {execution_id} not found",
+        )
+
+    if execution.status != "failed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Execution is not in 'failed' status (current status: {execution.status})",
+        )
+
+    error_details = execution.error_details or {}
+    failing_step_id = error_details.get("step_id")
+    workflow = db.query(Workflow).filter_by(id=execution.workflow_id).first()
+    if not workflow:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    # Find failing node
+    nodes = workflow.nodes or []
+    failing_node = next((n for n in nodes if n.get("id") == failing_step_id), None)
+    if not failing_node:
+        failing_node = {"id": failing_step_id or "unknown", "data": {}}
+
+    # Lookup endpoint schema if applicable
+    endpoint_schema = None
+    ep_id = failing_node.get("data", {}).get("endpoint_id")
+    if ep_id:
+        ep = db.query(Endpoint).filter_by(id=ep_id).first()
+        if ep:
+            endpoint_schema = ep.response_schema
+
+    diagnosis = await diagnose_step_failure(
+        step_id=failing_step_id or "step_failed",
+        node=failing_node,
+        error_details=error_details,
+        execution_context=execution.step_results or {},
+        endpoint_schema=endpoint_schema,
+    )
+
+    # Persist diagnosis in execution details
+    updated_details = dict(error_details)
+    updated_details["ai_diagnosis"] = diagnosis.model_dump()
+    execution.error_details = updated_details
+    db.commit()
+
+    return diagnosis
+
+
+@router.post(
+    "/executions/{execution_id}/apply-fix",
+    response_model=WorkflowExecutionResponse,
+    summary="Apply user-approved candidate fix to workflow and resume execution",
+)
+async def apply_fix_and_resume(
+    execution_id: int,
+    payload: ApplyFixRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Apply a user-confirmed candidate fix to the workflow and optionally resume the DAG.
+    NON-NEGOTIABLE RULE 9: Fixes require explicit user confirmation.
+    """
+    execution = (
+        db.query(WorkflowExecution)
+        .filter(WorkflowExecution.id == execution_id, WorkflowExecution.user_id == current_user.id)
+        .first()
+    )
+    if not execution:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Execution {execution_id} not found",
+        )
+
+    workflow = db.query(Workflow).filter_by(id=execution.workflow_id, user_id=current_user.id).first()
+    if not workflow:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    # Update workflow node with patch
+    nodes = copy.deepcopy(workflow.nodes or [])
+    updated = False
+    for node in nodes:
+        if node.get("id") == payload.target_node_id:
+            node_data = node.setdefault("data", {})
+            for k, v in payload.patch.items():
+                if isinstance(v, dict) and isinstance(node_data.get(k), dict):
+                    node_data[k].update(v)
+                else:
+                    node_data[k] = v
+            updated = True
+            break
+
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Node '{payload.target_node_id}' not found in workflow",
+        )
+
+    workflow.nodes = nodes
+    flag_modified(workflow, "nodes")
+    db.commit()
+
+    # Log audit event
+    audit = AuditLog(
+        user_id=current_user.id,
+        action="ai_fix_applied",
+        resource_type="workflow",
+        resource_id=str(workflow.id),
+        details={"execution_id": execution_id, "node_id": payload.target_node_id, "patch": payload.patch},
+    )
+    db.add(audit)
+    db.commit()
+
+    if payload.resume:
+        # Clear failure status and re-run
+        execution.status = "running"
+        execution.error_details = None
+        db.commit()
+
+        executor = DAGExecutor(db, execution.id)
+        execution = await executor.run()
+
+    return execution

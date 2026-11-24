@@ -20,6 +20,7 @@ from app.models import Workflow, WorkflowExecution, APIConnection, Endpoint, Aud
 from app.services.http_client import secure_http_client, SSRFProtectionError
 from app.services.transforms import resolve_templates, evaluate_transformation
 from app.security import decrypt_secret, mask_secret
+from app.services.validator import classify_error, validate_api_response, ErrorCategory
 
 
 def utc_now() -> datetime:
@@ -160,11 +161,23 @@ class DAGExecutor:
 
             except Exception as e:
                 execution.status = "failed"
+                status_code = getattr(e, "status_code", None)
+                response_body = getattr(e, "response_body", None)
+                classification = classify_error(
+                    status_code=status_code,
+                    response_body=response_body,
+                    exception=e,
+                    error_message=str(e),
+                )
                 execution.error_details = {
                     "step_id": step_id,
+                    "category": classification.get("category"),
+                    "summary": classification.get("summary"),
                     "message": str(e),
+                    "status_code": classification.get("status_code"),
+                    "response_body": response_body,
                 }
-                self._log(execution, step_id, f"Step execution failed: {str(e)}", "ERROR")
+                self._log(execution, step_id, f"Step execution failed ({classification.get('category')}): {str(e)}", "ERROR")
                 execution.step_results = step_results
                 execution.completed_at = utc_now()
                 self.db.commit()
@@ -247,8 +260,30 @@ class DAGExecutor:
         )
 
         if not resp["success"]:
-            raise RuntimeError(
+            err = RuntimeError(
                 f"API call to '{method} {full_url}' failed with status {resp['status_code']}: {resp['data']}"
             )
+            setattr(err, "status_code", resp["status_code"])
+            setattr(err, "response_body", resp["data"])
+            raise err
+
+        # Optional schema validation if configured on node or endpoint
+        expected_schema = node_data.get("response_schema")
+        if not expected_schema and node_data.get("endpoint_id"):
+            ep = self.db.query(Endpoint).filter_by(id=node_data.get("endpoint_id")).first()
+            if ep and ep.response_schema:
+                expected_schema = ep.response_schema
+
+        if expected_schema:
+            val_res = validate_api_response(
+                status_code=resp["status_code"],
+                data=resp["data"],
+                expected_schema=expected_schema,
+            )
+            if not val_res["valid"]:
+                err = ValueError(val_res.get("reason") or val_res.get("summary"))
+                setattr(err, "status_code", resp["status_code"])
+                setattr(err, "response_body", resp["data"])
+                raise err
 
         return resp
