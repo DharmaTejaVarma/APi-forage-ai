@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings
 from app.db import check_db_connectivity, init_db
 from app.schemas import HealthResponse
+from app.routers import auth
 
 settings = get_settings()
 
@@ -40,6 +41,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Register Routers
+app.include_router(auth.router, prefix="/api")
+app.include_router(auth.router)
 
 
 async def check_ollama_status() -> Dict[str, Any]:
