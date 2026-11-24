@@ -4,22 +4,32 @@ FastAPI application with health check and system status monitoring.
 """
 from datetime import datetime, timezone
 from typing import Dict, Any, List
+from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
-from app.db import check_db_connectivity
+from app.db import check_db_connectivity, init_db
 from app.schemas import HealthResponse
 
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler to initialize database tables on startup."""
+    init_db()
+    yield
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="AI-powered platform converting natural-language instructions into executable API workflows.",
     debug=settings.DEBUG,
+    lifespan=lifespan,
 )
 
 # CORS Middleware

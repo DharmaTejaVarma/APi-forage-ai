@@ -1,6 +1,6 @@
 """
 APIForge AI Database Module
-Configures SQLite engine with WAL mode and foreign key enforcement.
+Configures SQLite engine with WAL mode, foreign key enforcement, and table initialization.
 """
 from typing import Generator
 from sqlalchemy import create_engine, text, event
@@ -59,3 +59,15 @@ def check_db_connectivity() -> bool:
             return result == 1
     except Exception:
         return False
+
+
+def init_db() -> None:
+    """Create all tables registered with Base metadata."""
+    import app.models  # Ensure all models are imported so metadata is populated
+    Base.metadata.create_all(bind=engine)
+
+
+def drop_db() -> None:
+    """Drop all tables registered with Base metadata."""
+    import app.models
+    Base.metadata.drop_all(bind=engine)
