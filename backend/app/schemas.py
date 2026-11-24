@@ -145,6 +145,13 @@ class EndpointResponse(EndpointBase):
     updated_at: datetime
 
 
+class SemanticSearchResult(BaseModel):
+    endpoint: EndpointResponse
+    connection_name: str
+    base_url: str
+    similarity_score: float
+
+
 # ============================================================================
 # Workflow Schemas
 # ============================================================================

@@ -23,8 +23,34 @@ from app.security import (
     mask_secret,
 )
 from app.services.openapi_parser import parse_openapi_spec
+from app.services.embeddings import batch_embed_endpoints
 
 router = APIRouter(prefix="/connections", tags=["API Connections"])
+
+
+@router.post(
+    "/{connection_id}/embed-all",
+    summary="Batch generate embeddings for all connection endpoints",
+)
+async def embed_all_connection_endpoints(
+    connection_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate dense embeddings for all endpoints belonging to this connection."""
+    conn = (
+        db.query(APIConnection)
+        .filter(APIConnection.id == connection_id, APIConnection.user_id == current_user.id)
+        .first()
+    )
+    if not conn:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Connection {connection_id} not found",
+        )
+
+    count = await batch_embed_endpoints(db, connection_id)
+    return {"message": f"Successfully generated embeddings for {count} endpoints", "count": count}
 
 
 def _to_response_model(conn: APIConnection) -> APIConnectionResponse:

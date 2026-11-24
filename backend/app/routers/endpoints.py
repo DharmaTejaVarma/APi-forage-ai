@@ -3,16 +3,70 @@ APIForge AI Endpoints Router
 Query, inspect, and manage parsed API endpoints across connections.
 Enforces user-level data isolation.
 """
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import User, APIConnection, Endpoint
-from app.schemas import EndpointCreate, EndpointResponse
+from app.schemas import EndpointCreate, EndpointResponse, SemanticSearchResult
 from app.security import get_current_user
+from app.services.embeddings import embed_endpoint, semantic_search_endpoints
 
 router = APIRouter(prefix="/endpoints", tags=["API Endpoints"])
+
+
+@router.get(
+    "/search/semantic",
+    response_model=List[SemanticSearchResult],
+    summary="Semantic search across user endpoints using natural language",
+)
+async def search_endpoints_semantically(
+    q: str = Query(..., description="Natural language search query (e.g. 'find user orders')"),
+    top_k: int = Query(5, ge=1, le=20, description="Max number of ranked endpoints to return"),
+    connection_id: Optional[int] = Query(None, description="Optional connection filter"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Search and rank endpoints using nomic-embed-text vector embeddings and cosine similarity.
+    Enforces user isolation.
+    """
+    results = await semantic_search_endpoints(
+        db=db,
+        user_id=current_user.id,
+        query=q,
+        top_k=top_k,
+        connection_id=connection_id,
+    )
+    return results
+
+
+@router.post(
+    "/{endpoint_id}/embed",
+    response_model=EndpointResponse,
+    summary="Generate or refresh embedding for a single endpoint",
+)
+async def generate_endpoint_embedding(
+    endpoint_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate dense vector embedding using nomic-embed-text for this endpoint."""
+    endpoint = (
+        db.query(Endpoint)
+        .join(APIConnection, Endpoint.connection_id == APIConnection.id)
+        .filter(Endpoint.id == endpoint_id, APIConnection.user_id == current_user.id)
+        .first()
+    )
+    if not endpoint:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Endpoint {endpoint_id} not found",
+        )
+
+    await embed_endpoint(db, endpoint)
+    return endpoint
 
 
 @router.get(
