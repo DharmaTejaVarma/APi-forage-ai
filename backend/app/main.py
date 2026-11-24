@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings
 from app.db import check_db_connectivity, init_db
 from app.schemas import HealthResponse
-from app.routers import auth, connections, endpoints, workflows
+from app.routers import auth, connections, endpoints, workflows, executions
 from app.mock_server.mock_api import mock_router
 
 settings = get_settings()
@@ -53,6 +53,8 @@ app.include_router(endpoints.router, prefix="/api")
 app.include_router(endpoints.router)
 app.include_router(workflows.router, prefix="/api")
 app.include_router(workflows.router)
+app.include_router(executions.router, prefix="/api")
+app.include_router(executions.router)
 app.include_router(mock_router)
 
 

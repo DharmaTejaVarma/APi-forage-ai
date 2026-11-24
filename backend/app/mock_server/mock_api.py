@@ -82,14 +82,15 @@ def list_products():
     return list(products_db.values())
 
 
-@mock_router.get("/products/{product_id}", response_model=ProductSchema, summary="Get product by ID")
-def get_product(product_id: int):
+@mock_router.get("/products/{id}", response_model=ProductSchema, summary="Get product by ID")
+@mock_router.get("/products/item/{id}", response_model=ProductSchema, include_in_schema=False)
+def get_product(id: int):
     """Retrieve details for a single product by numeric ID."""
-    product = products_db.get(product_id)
+    product = products_db.get(id)
     if not product:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Product with ID {product_id} not found"
+            detail=f"Product with ID {id} not found"
         )
     return product
 
