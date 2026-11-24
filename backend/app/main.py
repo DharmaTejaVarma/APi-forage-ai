@@ -13,7 +13,8 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings
 from app.db import check_db_connectivity, init_db
 from app.schemas import HealthResponse
-from app.routers import auth
+from app.routers import auth, connections, endpoints
+from app.mock_server.mock_api import mock_router
 
 settings = get_settings()
 
@@ -46,6 +47,11 @@ app.add_middleware(
 # Register Routers
 app.include_router(auth.router, prefix="/api")
 app.include_router(auth.router)
+app.include_router(connections.router, prefix="/api")
+app.include_router(connections.router)
+app.include_router(endpoints.router, prefix="/api")
+app.include_router(endpoints.router)
+app.include_router(mock_router)
 
 
 async def check_ollama_status() -> Dict[str, Any]:

@@ -1,0 +1,227 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "APIForge Mock Store API",
+    "description": "Mock E-Commerce API for testing automated DAG workflows, discounts, and order processing.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8000/mock/api/v1",
+      "description": "Local APIForge Mock Server"
+    }
+  ],
+  "paths": {
+    "/products": {
+      "get": {
+        "summary": "List all products",
+        "description": "Returns a list of available store products.",
+        "operationId": "getProducts",
+        "responses": {
+          "200": {
+            "description": "List of products",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Product"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/products/{id}": {
+      "get": {
+        "summary": "Get product by ID",
+        "description": "Retrieves detailed information for a specific product including price and stock.",
+        "operationId": "getProductById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The unique numeric product identifier",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Product details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Product"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Product not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/discounts/calculate": {
+      "post": {
+        "summary": "Calculate discounted price",
+        "description": "Computes the final price of an item given original price and percentage discount.",
+        "operationId": "calculateDiscount",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscountCalculationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Calculated discount details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscountCalculationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders": {
+      "post": {
+        "summary": "Create purchase order",
+        "description": "Submits a new order for a product at a specified final price.",
+        "operationId": "createOrder",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Order created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders/{id}": {
+      "get": {
+        "summary": "Get order status",
+        "description": "Retrieves status and fulfillment details of an order by ID.",
+        "operationId": "getOrderById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The unique order identifier string",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Product": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "example": 5 },
+          "name": { "type": "string", "example": "Mechanical Gaming Keyboard" },
+          "category": { "type": "string", "example": "Electronics" },
+          "price": { "type": "number", "example": 1000.0 },
+          "stock": { "type": "integer", "example": 45 }
+        },
+        "required": ["id", "name", "price"]
+      },
+      "DiscountCalculationRequest": {
+        "type": "object",
+        "properties": {
+          "price": { "type": "number", "description": "Original product price", "example": 1000.0 },
+          "discount_percentage": { "type": "number", "description": "Discount percentage (0-100)", "example": 10.0 }
+        },
+        "required": ["price", "discount_percentage"]
+      },
+      "DiscountCalculationResponse": {
+        "type": "object",
+        "properties": {
+          "original_price": { "type": "number", "example": 1000.0 },
+          "discount_percentage": { "type": "number", "example": 10.0 },
+          "discounted_price": { "type": "number", "example": 900.0 },
+          "saved_amount": { "type": "number", "example": 100.0 }
+        },
+        "required": ["original_price", "discount_percentage", "discounted_price"]
+      },
+      "OrderCreateRequest": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "integer", "example": 5 },
+          "final_price": { "type": "number", "example": 900.0 },
+          "quantity": { "type": "integer", "example": 1, "default": 1 },
+          "customer_email": { "type": "string", "example": "customer@example.com" }
+        },
+        "required": ["product_id", "final_price"]
+      },
+      "OrderResponse": {
+        "type": "object",
+        "properties": {
+          "order_id": { "type": "string", "example": "ORD-5001" },
+          "product_id": { "type": "integer", "example": 5 },
+          "final_price": { "type": "number", "example": 900.0 },
+          "quantity": { "type": "integer", "example": 1 },
+          "status": { "type": "string", "example": "confirmed" },
+          "created_at": { "type": "string", "example": "2026-11-24T12:00:00Z" }
+        },
+        "required": ["order_id", "status", "final_price"]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "detail": { "type": "string", "example": "Not found" }
+        }
+      }
+    }
+  }
+}
