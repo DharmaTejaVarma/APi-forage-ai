@@ -17,6 +17,10 @@ class OllamaClient:
         self.base_url = (base_url or settings.OLLAMA_URL).rstrip("/")
         self.timeout = timeout or settings.OLLAMA_REQUEST_TIMEOUT
 
+    @property
+    def current_timeout(self) -> float:
+        return self.timeout or get_settings().OLLAMA_REQUEST_TIMEOUT
+
     async def is_healthy(self) -> bool:
         """Verify Ollama server is reachable."""
         try:
@@ -49,7 +53,7 @@ class OllamaClient:
             "prompt": prompt,
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.current_timeout) as client:
             resp = await client.post(f"{self.base_url}/api/embeddings", json=payload)
             if resp.status_code != 200:
                 raise RuntimeError(
@@ -86,7 +90,7 @@ class OllamaClient:
         if format:
             payload["format"] = format
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.current_timeout) as client:
             try:
                 resp = await client.post(f"{self.base_url}/api/chat", json=payload)
                 if resp.status_code == 200:
@@ -123,7 +127,7 @@ class OllamaClient:
         if format:
             payload["format"] = format
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.current_timeout) as client:
             resp = await client.post(f"{self.base_url}/api/generate", json=payload)
             if resp.status_code != 200:
                 raise RuntimeError(f"Ollama generate error (HTTP {resp.status_code}): {resp.text}")
