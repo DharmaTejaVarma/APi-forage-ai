@@ -81,6 +81,13 @@ def test_jwt_creation_and_decoding():
 def test_user_registration_success():
     """Test successful user registration returns 201 Created."""
     unique_email = "reg_test_user@apiforge.ai"
+    # Clean up any existing leftover user
+    with SessionLocal() as db:
+        old_u = db.query(User).filter_by(email=unique_email).first()
+        if old_u:
+            db.delete(old_u)
+            db.commit()
+
     payload = {
         "email": unique_email,
         "password": "ValidPassword123!",
@@ -96,7 +103,12 @@ def test_user_registration_success():
 
     # Verify audit log created
     with SessionLocal() as db:
-        log = db.query(AuditLog).filter_by(action="user_registered", resource_id=str(data["id"])).first()
+        log = (
+            db.query(AuditLog)
+            .filter_by(action="user_registered", resource_id=str(data["id"]))
+            .order_by(AuditLog.id.desc())
+            .first()
+        )
         assert log is not None
         assert log.details["email"] == unique_email
 
