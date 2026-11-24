@@ -17,12 +17,57 @@ from app.schemas import (
 )
 from app.security import get_current_user
 from app.services.workflow_generator import generate_workflow_from_prompt
+from app.agents.graph import multi_agent_orchestrator
 
 router = APIRouter(prefix="/workflows", tags=["Workflows"])
 
 
 class GenerateWorkflowRequest(BaseModel):
     prompt: str = Field(..., min_length=5, description="Natural language prompt describing the desired API workflow")
+
+
+@router.post(
+    "/generate-multi-agent",
+    response_model=WorkflowResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Generate workflow using LangGraph multi-agent orchestration",
+)
+async def generate_workflow_multi_agent(
+    req: GenerateWorkflowRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Run multi-agent workflow generation (Intent Detection, Discovery, Schema, Planning, Mapping, DAG Validation)
+    with automatic single-prompt fallback.
+    """
+    try:
+        result = await multi_agent_orchestrator.run(
+            prompt=req.prompt,
+            db=db,
+            user_id=current_user.id,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Multi-agent generation failed: {str(e)}",
+        )
+
+    workflow = Workflow(
+        user_id=current_user.id,
+        title=result.get("title") or "Multi-Agent Generated Workflow",
+        description=result.get("description") or f"Generated via multi-agent orchestration from: {req.prompt}",
+        raw_prompt=req.prompt,
+        nodes=result.get("nodes") or [],
+        edges=result.get("edges") or [],
+        dag_structure={"agent_trace": result.get("agent_trace", [])},
+        status="draft",
+        is_shared=False,
+    )
+    db.add(workflow)
+    db.commit()
+    db.refresh(workflow)
+    return workflow
 
 
 @router.post(
