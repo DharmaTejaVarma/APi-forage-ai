@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: apiforge-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./apiforge.db
+      - OLLAMA_URL=http://ollama:11434
+      - CHAT_MODEL=qwen2.5:7b-instruct
+      - EMBED_MODEL=nomic-embed-text
+      - JWT_SECRET=apiforge-super-secret-jwt-key-change-in-production-min-32-chars
+      - FERNET_KEY=8s_Z3l0m0QZkX8aB7W2kQ_8k1j0gR9v3lZ5xY7bA4uE=
+      - ALLOWED_DOMAINS=
+      - DEV_ALLOWED_HOSTS=localhost,127.0.0.1
+    volumes:
+      - ./backend/apiforge.db:/app/apiforge.db
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: apiforge-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: apiforge-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
