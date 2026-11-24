@@ -5,43 +5,34 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: apiforge-backend
+    container_name: apiforge_backend
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite:///./apiforge.db
-      - OLLAMA_URL=http://ollama:11434
+      - DATABASE_URL=sqlite:///./data/apiforge.db
+      - OLLAMA_URL=http://host.docker.internal:11434
       - CHAT_MODEL=qwen2.5:7b-instruct
       - EMBED_MODEL=nomic-embed-text
       - JWT_SECRET=apiforge-super-secret-jwt-key-change-in-production-min-32-chars
-      - FERNET_KEY=8s_Z3l0m0QZkX8aB7W2kQ_8k1j0gR9v3lZ5xY7bA4uE=
-      - ALLOWED_DOMAINS=
-      - DEV_ALLOWED_HOSTS=localhost,127.0.0.1
+      - FERNET_KEY=J6Q20w8l6l_vG2g7yXJ1T-0t0lY9L8A2k8g7h5d4s3E=
+      - DEBUG=True
+      - DEV_ALLOWED_HOSTS=localhost,127.0.0.1,host.docker.internal
     volumes:
-      - ./backend/apiforge.db:/app/apiforge.db
-    depends_on:
-      - ollama
+      - apiforge_data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: apiforge-frontend
+    container_name: apiforge_frontend
     ports:
-      - "5173:5173"
+      - "5173:80"
     depends_on:
       - backend
     restart: unless-stopped
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: apiforge-ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    restart: unless-stopped
-
 volumes:
-  ollama_data:
+  apiforge_data:

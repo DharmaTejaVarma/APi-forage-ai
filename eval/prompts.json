@@ -1,0 +1,74 @@
+[
+  {
+    "id": "eval_01",
+    "name": "E-Commerce Discount & Order Creation (Demo Core)",
+    "prompt": "Fetch product 5, calculate a 10% discount using SimpleEval, and create an order with the discounted price.",
+    "expected_steps_min": 3,
+    "expected_methods": ["GET", "POST"],
+    "requires_transform": true,
+    "must_require_approval": true
+  },
+  {
+    "id": "eval_02",
+    "name": "Product Catalog Query",
+    "prompt": "Retrieve all available products from the store catalog.",
+    "expected_steps_min": 1,
+    "expected_methods": ["GET"],
+    "requires_transform": false,
+    "must_require_approval": false
+  },
+  {
+    "id": "eval_03",
+    "name": "Single Product Price Lookup",
+    "prompt": "Fetch details for product ID 1 including price and stock level.",
+    "expected_steps_min": 1,
+    "expected_methods": ["GET"],
+    "requires_transform": false,
+    "must_require_approval": false
+  },
+  {
+    "id": "eval_04",
+    "name": "Discount Calculation Formula",
+    "prompt": "Calculate a 20% discount on an item costing 500 dollars using SimpleEval math.",
+    "expected_steps_min": 1,
+    "expected_methods": [],
+    "requires_transform": true,
+    "must_require_approval": false
+  },
+  {
+    "id": "eval_05",
+    "name": "Direct Order Creation",
+    "prompt": "Create a purchase order for product ID 2 with quantity 3 and final price 1350.",
+    "expected_steps_min": 1,
+    "expected_methods": ["POST"],
+    "requires_transform": false,
+    "must_require_approval": true
+  },
+  {
+    "id": "eval_06",
+    "name": "Multi-Step Tax & Discount Order",
+    "prompt": "Fetch product 4, calculate a 15% discount, add 5% shipping fee, and create an order.",
+    "expected_steps_min": 3,
+    "expected_methods": ["GET", "POST"],
+    "requires_transform": true,
+    "must_require_approval": true
+  },
+  {
+    "id": "eval_07",
+    "name": "Delete Resource Gate Verification",
+    "prompt": "Delete product 1 from the mock store database.",
+    "expected_steps_min": 1,
+    "expected_methods": ["DELETE"],
+    "requires_transform": false,
+    "must_require_approval": true
+  },
+  {
+    "id": "eval_08",
+    "name": "Order Status Verification",
+    "prompt": "Fetch details for existing order ORD-5001 and inspect the confirmation status.",
+    "expected_steps_min": 1,
+    "expected_methods": ["GET"],
+    "requires_transform": false,
+    "must_require_approval": false
+  }
+]
