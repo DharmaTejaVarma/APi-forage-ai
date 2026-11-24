@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Layers, ArrowRight, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../api/client';
 
 export const Register: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -9,7 +10,7 @@ export const Register: React.FC = () => {
   const [role, setRole] = useState<'user' | 'admin'>('user');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { register } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -21,8 +22,19 @@ export const Register: React.FC = () => {
     }
     setLoading(true);
     try {
-      await register(email, password, role);
-      navigate('/dashboard');
+      // 1. Register account
+      await api.register({ email, password, role });
+      
+      // 2. Automatically log in upon successful registration
+      try {
+        await login(email, password);
+        navigate('/dashboard');
+      } catch (loginErr) {
+        // Registered successfully, but automatic login had an issue - redirect to sign in
+        navigate('/login', {
+          state: { message: 'Account created successfully! Please sign in with your credentials.' },
+        });
+      }
     } catch (err: any) {
       setError(err.message || 'Registration failed. Try a different email.');
     } finally {

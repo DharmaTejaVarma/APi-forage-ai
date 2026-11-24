@@ -53,18 +53,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   // Authentication
-  login: async (formData: URLSearchParams): Promise<AuthResponse> => {
-    const res = await fetch(`${BASE_URL}/auth/token`, {
+  login: (email: string, password: string): Promise<AuthResponse> =>
+    request<AuthResponse>('/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData,
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'Login failed' }));
-      throw new Error(err.detail || 'Login failed');
-    }
-    return res.json();
-  },
+      body: JSON.stringify({ email, password }),
+    }),
 
   register: (data: { email: string; password: string; role?: string }) =>
     request<User>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),

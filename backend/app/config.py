@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite:///./apiforge.db"
 
+    @property
+    def resolved_database_url(self) -> str:
+        """Resolve SQLite database path to absolute path anchored to BACKEND_DIR."""
+        if self.DATABASE_URL.startswith("sqlite:///./"):
+            rel_name = self.DATABASE_URL[len("sqlite:///./") :]
+            db_path = (BACKEND_DIR / rel_name).resolve()
+            return f"sqlite:///{db_path.as_posix()}"
+        return self.DATABASE_URL
+
     # Ollama Local AI
     OLLAMA_URL: str = "http://localhost:11434"
     CHAT_MODEL: str = "qwen2.5:7b-instruct"

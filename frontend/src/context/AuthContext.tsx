@@ -38,11 +38,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [token]);
 
   const login = async (email: string, password: string) => {
-    const params = new URLSearchParams();
-    params.append('username', email);
-    params.append('password', password);
-
-    const res = await api.login(params);
+    const res = await api.login(email, password);
     localStorage.setItem('apiforge_token', res.access_token);
     setToken(res.access_token);
     setUser(res.user);
