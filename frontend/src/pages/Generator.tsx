@@ -28,7 +28,8 @@ export const Generator: React.FC = () => {
   const [prompt, setPrompt] = useState(
     searchParams.get('demo') === 'true' ? PROMPT_DISCOUNT : PROMPT_EMAIL
   );
-  const [mode, setMode] = useState<'fast' | 'multi_agent'>('fast');
+  const [mode, setMode] = useState<'multi_agent' | 'single'>('multi_agent');
+  const [engine, setEngine] = useState<'fast' | 'ollama_3b' | 'ollama'>('fast');
   const [generating, setGenerating] = useState(false);
   const [generatedWorkflow, setGeneratedWorkflow] = useState<Workflow | null>(null);
   const [generationTimeMs, setGenerationTimeMs] = useState<number | null>(null);
@@ -52,10 +53,10 @@ export const Generator: React.FC = () => {
 
     try {
       let wf: Workflow;
-      if (mode === 'fast') {
-        wf = await api.generateWorkflowFast(prompt);
+      if (mode === 'multi_agent') {
+        wf = await api.generateWorkflowMultiAgent(prompt, engine);
       } else {
-        wf = await api.generateWorkflowMultiAgent(prompt);
+        wf = await api.generateWorkflow(prompt, engine);
       }
       setGenerationTimeMs(Math.round(performance.now() - start));
       setGeneratedWorkflow(wf);
@@ -69,7 +70,7 @@ export const Generator: React.FC = () => {
   const handleExecuteNow = async () => {
     if (!generatedWorkflow) return;
     try {
-      const exec = await api.executeWorkflow(generatedWorkflow.id);
+      const exec = await api.executeWorkflow(generatedWorkflow.id, false);
       navigate(`/executions/${exec.id}`);
     } catch (err: any) {
       setError(err.message);
@@ -77,7 +78,15 @@ export const Generator: React.FC = () => {
   };
 
   const agentTrace = generatedWorkflow?.dag_structure?.agent_trace as
-    | Array<{ agent: string; status: string; details: string }>
+    | Array<{
+        agent: string;
+        status: string;
+        details: string;
+        duration_ms?: number;
+        inputs?: Record<string, any>;
+        outputs?: Record<string, any>;
+        errors?: string | null;
+      }>
     | undefined;
 
   return (
@@ -88,7 +97,7 @@ export const Generator: React.FC = () => {
           Autonomous AI Workflow Generator
         </h2>
         <p className="text-xs text-slate-400 mt-1">
-          Instruct APIForge in plain natural language. Generates validated, acyclic JSON DAG plans with Rule 8 approval enforcement in 1–2 seconds.
+          Instruct local Ollama (qwen2.5:7b-instruct + nomic-embed-text) using your registered OpenAPI specifications to build validated DAG workflows.
         </p>
       </div>
 
@@ -103,18 +112,6 @@ export const Generator: React.FC = () => {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setMode('fast')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                    mode === 'fast'
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm shadow-emerald-500/10'
-                      : 'bg-slate-800/80 text-slate-400 border border-slate-700/80 hover:text-slate-300'
-                  }`}
-                >
-                  <Zap className="w-3.5 h-3.5 text-emerald-400" />
-                  Ultra-Fast (1-2s)
-                </button>
-                <button
-                  type="button"
                   onClick={() => setMode('multi_agent')}
                   className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
                     mode === 'multi_agent'
@@ -123,7 +120,19 @@ export const Generator: React.FC = () => {
                   }`}
                 >
                   <Layers className="w-3.5 h-3.5 text-indigo-400" />
-                  Multi-Agent (LangGraph)
+                  Multi-Agent (LangGraph 7 Agents)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('single')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                    mode === 'single'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/10'
+                      : 'bg-slate-800/80 text-slate-400 border border-slate-700/80 hover:text-slate-300'
+                  }`}
+                >
+                  <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                  Single-Prompt (Ollama)
                 </button>
               </div>
             </div>
@@ -157,17 +166,51 @@ export const Generator: React.FC = () => {
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700 text-slate-300">
-                <Bot className="w-3.5 h-3.5 text-indigo-400" />
-                qwen2.5:7b
-              </span>
-              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700 text-slate-300">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+              <div className="flex items-center rounded-lg bg-slate-950 border border-slate-800 p-0.5 gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => setEngine('fast')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    engine === 'fast'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Zap className="w-3 h-3 text-emerald-400" />
+                  Fast AI (1-2s)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEngine('ollama_3b')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    engine === 'ollama_3b'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Bot className="w-3 h-3 text-cyan-400" />
+                  Ollama 3B (~30s)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEngine('ollama')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    engine === 'ollama'
+                      ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Bot className="w-3 h-3 text-indigo-400" />
+                  Ollama 7B (Deep)
+                </button>
+              </div>
+              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700 text-slate-300 text-[11px]">
                 <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-                nomic-embed
+                nomic-embed-text
               </span>
-              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono text-[11px]">
-                <Zap className="w-3 h-3 text-emerald-400" /> Target: &lt; 2s
+              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 font-mono text-[11px]">
+                <Layers className="w-3 h-3 text-indigo-400" /> Local AI Only
               </span>
             </div>
 
@@ -193,10 +236,14 @@ export const Generator: React.FC = () => {
           <div className="p-6 rounded-xl bg-slate-950/70 border border-slate-800 text-center space-y-3 animate-pulse">
             <div className="w-10 h-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mx-auto" />
             <div className="text-sm font-semibold text-white">
-              {mode === 'fast' ? '⚡ Ultra-Fast DAG Generation in Progress...' : 'Multi-Agent Graph Orchestration in Progress...'}
+              {mode === 'multi_agent'
+                ? 'LangGraph 7-Agent Orchestration in Progress...'
+                : 'Single-Pass DAG Generation in Progress...'}
             </div>
             <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Running Intent Detection → Schema Analysis → DAG Planning → Rule 8 Approval Verification.
+              {engine === 'fast'
+                ? 'Running Intent → Semantic Discovery (nomic-embed-text) → Schema Analysis → Fast Semantic Planner → Data Mapping → Validation (~1-2s).'
+                : `Running local Ollama (${engine === 'ollama_3b' ? 'qwen2.5:3b' : 'qwen2.5:7b-instruct'}) + nomic-embed-text → Validation → Supervisor.`}
             </p>
           </div>
         )}
@@ -252,13 +299,18 @@ export const Generator: React.FC = () => {
                 {agentTrace.map((item, idx) => (
                   <div
                     key={idx}
-                    className="p-2 rounded bg-slate-900 border border-slate-800/80 flex items-start gap-2"
+                    className="p-2.5 rounded bg-slate-900 border border-slate-800/80 flex items-start justify-between gap-2"
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <div>
-                      <span className="text-indigo-300 font-semibold">{item.agent}:</span>{' '}
-                      <span className="text-slate-400">{item.details}</span>
+                    <div className="flex items-start gap-2 min-w-0">
+                      <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${item.status === 'failed' ? 'text-rose-400' : item.status === 'retrying' ? 'text-amber-400' : 'text-emerald-400'}`} />
+                      <div className="min-w-0">
+                        <span className="text-indigo-300 font-semibold">{item.agent}:</span>{' '}
+                        <span className="text-slate-400">{item.details}</span>
+                      </div>
                     </div>
+                    {item.duration_ms !== undefined && (
+                      <span className="text-[10px] text-slate-500 shrink-0">{item.duration_ms}ms</span>
+                    )}
                   </div>
                 ))}
               </div>

@@ -63,8 +63,11 @@ def check_db_connectivity() -> bool:
 
 def seed_demo_users() -> None:
     """Seed demo and admin accounts with Mock Store API endpoints if they do not already exist."""
+    import json
+    from pathlib import Path
     from app.models import User, APIConnection, Endpoint
     from app.security import get_password_hash
+    from app.services.openapi_parser import parse_openapi_spec
 
     db = SessionLocal()
     try:
@@ -99,7 +102,7 @@ def seed_demo_users() -> None:
             mock_conn = APIConnection(
                 user_id=demo_user.id,
                 name="Mock Store API",
-                description="Mock E-Commerce API for testing automated DAG workflows, discounts, and orders.",
+                description="Mock E-Commerce API for testing automated DAG workflows, discounts, customers, notifications, and orders.",
                 base_url="http://127.0.0.1:8000/mock/api/v1",
                 auth_type="none",
             )
@@ -107,17 +110,49 @@ def seed_demo_users() -> None:
             db.commit()
             db.refresh(mock_conn)
 
-        eps = db.query(Endpoint).filter_by(connection_id=mock_conn.id).all()
-        if not eps:
-            demo_eps = [
-                Endpoint(connection_id=mock_conn.id, path="/mock/api/v1/products", method="GET", summary="List all products in catalog"),
-                Endpoint(connection_id=mock_conn.id, path="/mock/api/v1/products/{id}", method="GET", summary="Get product details by ID", parameters=[{"name": "id", "in": "path", "required": True}]),
-                Endpoint(connection_id=mock_conn.id, path="/mock/api/v1/discounts/calculate", method="POST", summary="Calculate discounted price", request_body_schema={"properties": {"price": {"type": "number"}, "discount_percentage": {"type": "number"}}}),
-                Endpoint(connection_id=mock_conn.id, path="/mock/api/v1/orders", method="POST", summary="Submit purchase order", request_body_schema={"properties": {"product_id": {"type": "integer"}, "final_price": {"type": "number"}}}),
-                Endpoint(connection_id=mock_conn.id, path="/mock/api/v1/orders/{order_id}", method="GET", summary="Get order details by ID", parameters=[{"name": "order_id", "in": "path", "required": True}]),
-            ]
-            db.add_all(demo_eps)
-            db.commit()
+        # Normalize any previously seeded duplicated prefix paths
+        existing_eps = db.query(Endpoint).filter_by(connection_id=mock_conn.id).all()
+        existing_by_key = {}
+        for ep in existing_eps:
+            if ep.path.startswith("/mock/api/v1"):
+                ep.path = ep.path[len("/mock/api/v1"):] or "/"
+            existing_by_key[(ep.method.upper(), ep.path)] = ep
+
+        backend_dir = Path(__file__).resolve().parent.parent
+        ext_spec_path = backend_dir / "samples" / "extended_mock_openapi.json"
+        std_spec_path = backend_dir / "samples" / "mock_openapi.json"
+        spec_path = ext_spec_path if ext_spec_path.exists() else std_spec_path
+        if spec_path.exists():
+            with open(spec_path, "r", encoding="utf-8") as f:
+                parsed = parse_openapi_spec(json.load(f))
+            missing_eps = []
+            for pe in parsed.endpoints:
+                key = (pe.method.upper(), pe.path)
+                existing_ep = existing_by_key.get(key)
+                if existing_ep:
+                    existing_ep.summary = pe.summary or existing_ep.summary
+                    existing_ep.description = pe.description or existing_ep.description
+                    existing_ep.parameters = pe.parameters or existing_ep.parameters
+                    existing_ep.request_body_schema = pe.request_body_schema or existing_ep.request_body_schema
+                    existing_ep.response_schema = pe.response_schema or existing_ep.response_schema
+                    existing_ep.security = pe.security if pe.security is not None else existing_ep.security
+                else:
+                    missing_eps.append(
+                        Endpoint(
+                            connection_id=mock_conn.id,
+                            path=pe.path,
+                            method=pe.method,
+                            summary=pe.summary,
+                            description=pe.description,
+                            operation_id=pe.operation_id,
+                            parameters=pe.parameters,
+                            request_body_schema=pe.request_body_schema,
+                            response_schema=pe.response_schema,
+                            security=pe.security,
+                        )
+                    )
+            if missing_eps:
+                db.add_all(missing_eps)
 
         db.commit()
     except Exception as e:
@@ -127,10 +162,36 @@ def seed_demo_users() -> None:
         db.close()
 
 
+def _migrate_sqlite_columns() -> None:
+    """Safely add newly introduced columns on existing SQLite databases."""
+    if not settings.resolved_database_url.startswith("sqlite"):
+        return
+
+    migrations = {
+        "endpoints": [("security", "JSON")],
+        "workflow_executions": [
+            ("approved_steps", "JSON"),
+            ("pending_approval_details", "JSON"),
+            ("final_output", "JSON"),
+        ],
+    }
+    with engine.connect() as conn:
+        for table, cols in migrations.items():
+            existing = {
+                row[1]
+                for row in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+            }
+            for col_name, col_type in cols:
+                if col_name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}"))
+        conn.commit()
+
+
 def init_db() -> None:
     """Create all tables registered with Base metadata and seed demo accounts."""
     import app.models  # Ensure all models are imported so metadata is populated
     Base.metadata.create_all(bind=engine)
+    _migrate_sqlite_columns()
     seed_demo_users()
 
 

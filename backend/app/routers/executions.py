@@ -1,15 +1,17 @@
 """
 APIForge AI Workflow Executions Router
-Handles DAG workflow execution runs, status inspection, telemetry logs,
-and human-in-the-loop approval actions (Approve / Reject).
+Handles DAG workflow execution runs (sync or FastAPI BackgroundTasks),
+history listing, status inspection, telemetry logs, per-step Rule 8 human approvals,
+and Rule 9 AI error diagnosis & candidate fix application.
 """
 import copy
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+import networkx as nx
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.db import get_db
+from app.db import get_db, SessionLocal
 from app.models import User, Workflow, WorkflowExecution, Endpoint, AuditLog, utc_now
 from app.schemas import WorkflowExecutionResponse, ErrorDiagnosisResponse, ApplyFixRequest
 from app.security import get_current_user
@@ -17,6 +19,32 @@ from app.services.executor import DAGExecutor
 from app.services.error_agent import diagnose_step_failure
 
 router = APIRouter(tags=["Executions"])
+
+
+async def _run_execution_background(execution_id: int, resume: bool = False) -> None:
+    """FastAPI background task runner with isolated DB session."""
+    with SessionLocal() as bg_db:
+        executor = DAGExecutor(bg_db, execution_id)
+        await executor.run(resume_from_approval=resume)
+
+
+@router.get(
+    "/executions",
+    response_model=List[WorkflowExecutionResponse],
+    summary="List all executions for current user",
+)
+def list_all_executions(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Retrieve complete execution history belonging to the authenticated user."""
+    query = db.query(WorkflowExecution).filter(WorkflowExecution.user_id == current_user.id)
+    if status_filter:
+        query = query.filter(WorkflowExecution.status == status_filter)
+    return query.order_by(WorkflowExecution.created_at.desc()).offset(offset).limit(limit).all()
 
 
 @router.post(
@@ -27,6 +55,8 @@ router = APIRouter(tags=["Executions"])
 )
 async def execute_workflow(
     workflow_id: int,
+    background_tasks: BackgroundTasks,
+    background: bool = Query(False, description="Run asynchronously in background task for live polling"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -34,6 +64,7 @@ async def execute_workflow(
     Launch execution of a workflow DAG:
     - Runs steps in topological order.
     - If a step requires approval (Rule 8), pauses with status 'waiting_approval'.
+    - Supports synchronous run (default) or FastAPI BackgroundTasks async run.
     """
     workflow = (
         db.query(Workflow)
@@ -52,6 +83,7 @@ async def execute_workflow(
         status="pending",
         step_results={},
         execution_logs=[],
+        approved_steps=[],
         requires_approval=False,
         approval_status="not_required",
     )
@@ -59,21 +91,23 @@ async def execute_workflow(
     db.commit()
     db.refresh(execution)
 
-    # Execute DAG
-    executor = DAGExecutor(db, execution.id)
-    execution = await executor.run()
-
     # Audit log
     audit = AuditLog(
         user_id=current_user.id,
         action="workflow_execution_started",
         resource_type="workflow_execution",
         resource_id=str(execution.id),
-        details={"workflow_id": workflow_id, "status": execution.status},
+        details={"workflow_id": workflow_id, "background": background},
     )
     db.add(audit)
     db.commit()
 
+    if background:
+        background_tasks.add_task(_run_execution_background, execution.id, False)
+        return execution
+
+    executor = DAGExecutor(db, execution.id)
+    execution = await executor.run()
     return execution
 
 
@@ -112,7 +146,8 @@ async def approve_execution_step(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Approve paused step (POST, PUT, DELETE) and resume DAG execution.
+    Approve the specific paused step (POST, PUT, PATCH, DELETE) and resume DAG execution.
+    Subsequent mutating steps will pause independently for explicit approval.
     """
     execution = (
         db.query(WorkflowExecution)
@@ -132,6 +167,11 @@ async def approve_execution_step(
         )
 
     step_approved = execution.pending_approval_step
+    approved_list = list(execution.approved_steps or [])
+    if step_approved and step_approved not in approved_list:
+        approved_list.append(step_approved)
+    execution.approved_steps = approved_list
+    flag_modified(execution, "approved_steps")
     execution.approval_status = "approved"
     db.commit()
 
@@ -188,7 +228,6 @@ def reject_execution_step(
     execution.completed_at = utc_now()
     db.commit()
 
-    # Audit log
     audit = AuditLog(
         user_id=current_user.id,
         action="step_rejected",
@@ -259,13 +298,11 @@ async def diagnose_execution(
     if not workflow:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
 
-    # Find failing node
     nodes = workflow.nodes or []
     failing_node = next((n for n in nodes if n.get("id") == failing_step_id), None)
     if not failing_node:
         failing_node = {"id": failing_step_id or "unknown", "data": {}}
 
-    # Lookup endpoint schema if applicable
     endpoint_schema = None
     ep_id = failing_node.get("data", {}).get("endpoint_id")
     if ep_id:
@@ -281,10 +318,10 @@ async def diagnose_execution(
         endpoint_schema=endpoint_schema,
     )
 
-    # Persist diagnosis in execution details
     updated_details = dict(error_details)
     updated_details["ai_diagnosis"] = diagnosis.model_dump()
     execution.error_details = updated_details
+    flag_modified(execution, "error_details")
     db.commit()
 
     return diagnosis
@@ -303,6 +340,7 @@ async def apply_fix_and_resume(
 ):
     """
     Apply a user-confirmed candidate fix to the workflow and optionally resume the DAG.
+    Clears stale results for the modified node and its descendants cleanly.
     NON-NEGOTIABLE RULE 9: Fixes require explicit user confirmation.
     """
     execution = (
@@ -320,7 +358,6 @@ async def apply_fix_and_resume(
     if not workflow:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
 
-    # Update workflow node with patch
     nodes = copy.deepcopy(workflow.nodes or [])
     updated = False
     for node in nodes:
@@ -344,7 +381,6 @@ async def apply_fix_and_resume(
     flag_modified(workflow, "nodes")
     db.commit()
 
-    # Log audit event
     audit = AuditLog(
         user_id=current_user.id,
         action="ai_fix_applied",
@@ -356,12 +392,28 @@ async def apply_fix_and_resume(
     db.commit()
 
     if payload.resume:
-        # Clear failure status and re-run
+        # Clear failed node + all downstream descendants from step_results before resuming
+        g = nx.DiGraph()
+        for n in workflow.nodes or []:
+            g.add_node(n["id"])
+        for e in workflow.edges or []:
+            g.add_edge(e["source"], e["target"])
+
+        steps_to_reset = {payload.target_node_id}
+        if payload.target_node_id in g:
+            steps_to_reset |= nx.descendants(g, payload.target_node_id)
+
+        cleaned_results = {
+            k: v for k, v in (execution.step_results or {}).items()
+            if k not in steps_to_reset and isinstance(v, dict) and v.get("status") == "completed"
+        }
+        execution.step_results = cleaned_results
+        flag_modified(execution, "step_results")
         execution.status = "running"
         execution.error_details = None
         db.commit()
 
         executor = DAGExecutor(db, execution.id)
-        execution = await executor.run()
+        execution = await executor.run(resume_from_approval=True)
 
     return execution

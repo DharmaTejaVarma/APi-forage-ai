@@ -114,6 +114,7 @@ class APIConnectionResponse(APIConnectionBase):
     created_at: datetime
     updated_at: datetime
     has_credentials: bool = False
+    endpoints_count: Optional[int] = None
 
 
 # ============================================================================
@@ -129,6 +130,7 @@ class EndpointBase(BaseModel):
     parameters: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     request_body_schema: Optional[Dict[str, Any]] = None
     response_schema: Optional[Dict[str, Any]] = None
+    security: Optional[List[Dict[str, Any]]] = None
 
 
 class EndpointCreate(EndpointBase):
@@ -143,6 +145,8 @@ class EndpointResponse(EndpointBase):
     connection_id: int
     created_at: datetime
     updated_at: datetime
+    embedding: Optional[List[float]] = None
+    has_embedding: bool = False
 
 
 class SemanticSearchResult(BaseModel):
@@ -209,7 +213,10 @@ class WorkflowExecutionResponse(BaseModel):
     execution_logs: Optional[List[Dict[str, Any]]] = None
     requires_approval: bool
     pending_approval_step: Optional[str] = None
+    approved_steps: Optional[List[str]] = None
+    pending_approval_details: Optional[Dict[str, Any]] = None
     approval_status: str
+    final_output: Optional[Any] = None
     error_details: Optional[Dict[str, Any]] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

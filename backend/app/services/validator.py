@@ -1,7 +1,7 @@
 """
 APIForge AI Response Validator & Error Classifier
 Validates API response status codes and JSONSchema schemas against endpoint response_schema.
-Classifies failures into distinct error categories for AI recovery and telemetry.
+Classifies failures into all 12 standard diagnostic categories for AI recovery and telemetry.
 """
 from typing import Dict, Any, Optional, Tuple
 import jsonschema
@@ -9,13 +9,20 @@ from jsonschema.exceptions import ValidationError, SchemaError
 
 
 class ErrorCategory:
-    SCHEMA_MISMATCH = "SCHEMA_MISMATCH"
-    CLIENT_ERROR_4XX = "CLIENT_ERROR_4XX"
-    SERVER_ERROR_5XX = "SERVER_ERROR_5XX"
-    RATE_LIMIT_429 = "RATE_LIMIT_429"
+    CONNECTION_FAILURE = "CONNECTION_FAILURE"
     NETWORK_TIMEOUT = "NETWORK_TIMEOUT"
-    SSRF_VIOLATION = "SSRF_VIOLATION"
+    AUTH_FAILURE = "AUTH_FAILURE"
+    NOT_FOUND = "NOT_FOUND"
+    INVALID_PARAMETERS = "INVALID_PARAMETERS"
+    RATE_LIMIT_429 = "RATE_LIMIT_429"
+    SERVER_ERROR_5XX = "SERVER_ERROR_5XX"
+    MISSING_RESPONSE_FIELDS = "MISSING_RESPONSE_FIELDS"
+    SCHEMA_MISMATCH = "SCHEMA_MISMATCH"
+    DATA_MAPPING_FAILURE = "DATA_MAPPING_FAILURE"
     TRANSFORM_ERROR = "TRANSFORM_ERROR"
+    VALIDATION_FAILURE = "VALIDATION_FAILURE"
+    SSRF_VIOLATION = "SSRF_VIOLATION"
+    CLIENT_ERROR_4XX = "CLIENT_ERROR_4XX"
     UNKNOWN_ERROR = "UNKNOWN_ERROR"
 
 
@@ -29,7 +36,6 @@ def _sanitize_openapi_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
 
     clean = dict(schema)
 
-    # OpenAPI 3.0 nullable -> jsonschema null type
     if clean.get("nullable") is True:
         current_type = clean.get("type")
         if isinstance(current_type, str):
@@ -38,7 +44,6 @@ def _sanitize_openapi_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
             clean["type"] = current_type + ["null"]
         clean.pop("nullable", None)
 
-    # Recursively clean nested properties and items
     if "properties" in clean and isinstance(clean["properties"], dict):
         clean["properties"] = {k: _sanitize_openapi_schema(v) for k, v in clean["properties"].items()}
     if "items" in clean and isinstance(clean["items"], dict):
@@ -75,21 +80,50 @@ def classify_error(
     error_message: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Classify an execution error into a standard category with diagnostic details.
+    Classify an execution error into standardized diagnostic categories:
+    Connection failure, Timeout, Authentication failure, Not found, Invalid parameters,
+    Rate limiting, Server error, Missing response fields, Schema mismatch,
+    Data mapping failure, Transformation failure, Workflow validation failure.
     """
+    exc_name = type(exception).__name__ if exception else ""
     msg = error_message or (str(exception) if exception else "")
+    msg_lower = msg.lower()
 
-    if "SSRFProtectionError" in type(exception).__name__ or "SSRF" in msg or "forbidden" in msg.lower():
+    if "SSRFProtectionError" in exc_name or "ssrf" in msg_lower or "prohibited" in msg_lower or "allowed_domains" in msg_lower or "internal/private ip" in msg_lower:
         category = ErrorCategory.SSRF_VIOLATION
         summary = "Outgoing request violated SSRF security boundaries."
 
-    elif "Timeout" in type(exception).__name__ or "timed out" in msg.lower():
+    elif "DataMappingError" in exc_name or "unresolved template" in msg_lower or "unresolved data reference" in msg_lower:
+        category = ErrorCategory.DATA_MAPPING_FAILURE
+        summary = f"Data mapping failed: {msg}"
+
+    elif "ConnectionFailureError" in exc_name or "connection failed" in msg_lower or "connecterror" in msg_lower or "name or service not known" in msg_lower:
+        category = ErrorCategory.CONNECTION_FAILURE
+        summary = "Could not connect to the target API service."
+
+    elif "Timeout" in exc_name or "timed out" in msg_lower:
         category = ErrorCategory.NETWORK_TIMEOUT
         summary = "HTTP request timed out before receiving a response."
 
-    elif "SimpleEval" in type(exception).__name__ or "formula" in msg.lower() or "evaluation failed" in msg.lower():
+    elif "SimpleEval" in exc_name or "formula" in msg_lower or "evaluation failed" in msg_lower or "transformation" in msg_lower:
         category = ErrorCategory.TRANSFORM_ERROR
         summary = f"Data transformation error: {msg}"
+
+    elif "validation" in msg_lower and ("cyclic" in msg_lower or "workflow" in msg_lower or "unregistered endpoint" in msg_lower or "non-ancestor" in msg_lower):
+        category = ErrorCategory.VALIDATION_FAILURE
+        summary = f"Workflow validation failed: {msg}"
+
+    elif status_code in (401, 403):
+        category = ErrorCategory.AUTH_FAILURE
+        summary = f"API authentication/authorization failed (HTTP {status_code})."
+
+    elif status_code == 404:
+        category = ErrorCategory.NOT_FOUND
+        summary = "Target API resource or endpoint not found (HTTP 404)."
+
+    elif status_code in (400, 422) or "missing required" in msg_lower:
+        category = ErrorCategory.INVALID_PARAMETERS
+        summary = f"Invalid or missing request parameters/payload (HTTP {status_code or 400})."
 
     elif status_code == 429:
         category = ErrorCategory.RATE_LIMIT_429
@@ -103,7 +137,11 @@ def classify_error(
         category = ErrorCategory.SERVER_ERROR_5XX
         summary = f"Target API returned server error HTTP {status_code}."
 
-    elif "schema" in msg.lower() or "validation" in msg.lower():
+    elif "is a required property" in msg_lower or "missing response field" in msg_lower:
+        category = ErrorCategory.MISSING_RESPONSE_FIELDS
+        summary = f"API response omitted required schema field(s): {msg}"
+
+    elif "schema" in msg_lower or "validation error at" in msg_lower:
         category = ErrorCategory.SCHEMA_MISMATCH
         summary = f"Response schema validation mismatch: {msg}"
 
@@ -128,9 +166,8 @@ def validate_api_response(
 ) -> Dict[str, Any]:
     """
     Validate status code and body schema for an API response.
-    Returns status assessment and error category if invalid.
+    Distinguishes MISSING_RESPONSE_FIELDS vs general SCHEMA_MISMATCH.
     """
-    # 1. Status code validation
     if expected_status and status_code != expected_status:
         classification = classify_error(status_code=status_code, response_body=data)
         classification["valid"] = False
@@ -143,7 +180,6 @@ def validate_api_response(
         classification["reason"] = f"API returned error status HTTP {status_code}."
         return classification
 
-    # 2. Schema validation
     if expected_schema:
         is_valid, err_msg = validate_response_schema(data, expected_schema)
         if not is_valid:
@@ -153,7 +189,6 @@ def validate_api_response(
                 error_message=err_msg,
             )
             classification["valid"] = False
-            classification["category"] = ErrorCategory.SCHEMA_MISMATCH
             classification["reason"] = err_msg
             return classification
 

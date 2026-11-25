@@ -138,7 +138,7 @@ async def test_end_to_end_error_recovery_and_apply_fix():
 
     assert exec_data["status"] == "failed"
     assert exec_data["error_details"]["status_code"] == 404
-    assert exec_data["error_details"]["category"] == ErrorCategory.CLIENT_ERROR_4XX
+    assert exec_data["error_details"]["category"] == ErrorCategory.NOT_FOUND
 
     # 2. Call Diagnose API: POST /executions/{id}/diagnose
     r_diag = client.post(f"/executions/{exec_id}/diagnose", headers=headers)

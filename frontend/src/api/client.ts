@@ -72,9 +72,9 @@ export const api = {
   deleteConnection: (id: number) =>
     request<{ message: string }>(`/connections/${id}`, { method: 'DELETE' }),
   embedAllConnection: (id: number) =>
-    request<{ message: string; embedded_count: number }>(`/connections/${id}/embed-all`, { method: 'POST' }),
+    request<{ message: string; count: number; embedded_count: number }>(`/connections/${id}/embed-all`, { method: 'POST' }),
   importOpenAPI: (connectionId: number, spec: any) =>
-    request<{ message: string; endpoints_imported: number }>(`/connections/${connectionId}/import-openapi`, {
+    request<Endpoint[]>(`/connections/${connectionId}/import-openapi`, {
       method: 'POST',
       body: JSON.stringify(spec),
     }),
@@ -83,8 +83,8 @@ export const api = {
   getEndpoints: (connectionId?: number) =>
     request<Endpoint[]>(connectionId ? `/endpoints?connection_id=${connectionId}` : '/endpoints'),
   searchSemantic: (query: string, connectionId?: number) =>
-    request<{ results: Array<{ endpoint: Endpoint; similarity: number }> }>(
-      `/endpoints/search/semantic?query=${encodeURIComponent(query)}${connectionId ? `&connection_id=${connectionId}` : ''
+    request<Array<{ endpoint: Endpoint; connection_name: string; base_url: string; similarity_score: number }>>(
+      `/endpoints/search/semantic?q=${encodeURIComponent(query)}${connectionId ? `&connection_id=${connectionId}` : ''
       }`
     ),
 
@@ -98,27 +98,33 @@ export const api = {
   deleteWorkflow: (id: number) =>
     request<{ message: string }>(`/workflows/${id}`, { method: 'DELETE' }),
 
-  generateWorkflowFast: (prompt: string) =>
+  generateWorkflowFast: (prompt: string, engine: 'fast' | 'ollama_3b' | 'ollama' = 'fast') =>
     request<Workflow>('/workflows/generate-fast', {
       method: 'POST',
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, engine }),
     }),
 
-  generateWorkflow: (prompt: string) =>
+  generateWorkflow: (prompt: string, engine: 'fast' | 'ollama_3b' | 'ollama' = 'fast') =>
     request<Workflow>('/workflows/generate', {
       method: 'POST',
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, engine }),
     }),
 
-  generateWorkflowMultiAgent: (prompt: string) =>
+  generateWorkflowMultiAgent: (prompt: string, engine: 'fast' | 'ollama_3b' | 'ollama' = 'fast') =>
     request<Workflow>('/workflows/generate-multi-agent', {
       method: 'POST',
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, engine }),
+    }),
+  validateWorkflow: (nodes: any[], edges: any[], strictEndpoints = false) =>
+    request<{ valid: boolean; dag_structure: any }>('/workflows/validate', {
+      method: 'POST',
+      body: JSON.stringify({ nodes, edges, strict_endpoints: strictEndpoints }),
     }),
 
   // Executions
-  executeWorkflow: (workflowId: number) =>
-    request<WorkflowExecution>(`/workflows/${workflowId}/execute`, { method: 'POST' }),
+  listExecutions: (limit = 100) => request<WorkflowExecution[]>(`/executions?limit=${limit}`),
+  executeWorkflow: (workflowId: number, background = false) =>
+    request<WorkflowExecution>(`/workflows/${workflowId}/execute?background=${background}`, { method: 'POST' }),
   getExecution: (id: number) => request<WorkflowExecution>(`/executions/${id}`),
   getWorkflowExecutions: (workflowId: number) =>
     request<WorkflowExecution[]>(`/workflows/${workflowId}/executions`),

@@ -99,10 +99,11 @@ export const Connections: React.FC = () => {
   const handleImportOpenAPI = async (connectionId: number) => {
     try {
       const parsed = JSON.parse(importJson);
-      const res = await api.importOpenAPI(connectionId, parsed);
+      const imported = await api.importOpenAPI(connectionId, parsed);
+      const count = Array.isArray(imported) ? imported.length : 0;
       setFeedback({
         type: 'success',
-        message: `Successfully imported ${res.endpoints_imported} endpoints from OpenAPI spec!`,
+        message: `Successfully imported ${count} endpoints from OpenAPI spec!`,
       });
       setShowImportModal(null);
       setImportJson('');
@@ -115,18 +116,18 @@ export const Connections: React.FC = () => {
   const handleSetupMockStore = async () => {
     try {
       const conn = await api.createConnection({
-        name: 'Mock Store API',
+        name: 'Extended Mock Store API',
         base_url: 'http://127.0.0.1:8000/mock/api/v1',
         auth_type: 'none',
       });
-      // Fetch mock OpenAPI spec
-      const resp = await fetch('http://127.0.0.1:8000/mock/api/v1/openapi.json');
+      // Fetch extended mock OpenAPI spec via Vite proxy
+      const resp = await fetch('/mock/api/v1/extended-openapi.json');
       const spec = await resp.json();
       await api.importOpenAPI(conn.id, spec);
       await api.embedAllConnection(conn.id);
       setFeedback({
         type: 'success',
-        message: 'Mock Store API connected, endpoints imported, and embedded with nomic-embed-text!',
+        message: 'Extended Mock Store API connected, endpoints imported, and embedded with nomic-embed-text!',
       });
       loadConnections();
     } catch (err: any) {
@@ -194,9 +195,14 @@ export const Connections: React.FC = () => {
               <div className="flex items-start justify-between gap-2 mb-3">
                 <div>
                   <h3 className="font-semibold text-white text-sm">{conn.name}</h3>
-                  <span className="inline-block mt-1 font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-indigo-300 border border-slate-700">
-                    Auth: {conn.auth_type.toUpperCase()}
-                  </span>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="inline-block font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-indigo-300 border border-slate-700">
+                      Auth: {conn.auth_type.toUpperCase()}
+                    </span>
+                    <span className="inline-block font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700">
+                      {conn.endpoints_count ?? 0} Endpoints
+                    </span>
+                  </div>
                 </div>
                 <button
                   onClick={() => handleDelete(conn.id)}

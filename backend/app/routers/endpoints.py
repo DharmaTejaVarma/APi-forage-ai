@@ -22,7 +22,8 @@ router = APIRouter(prefix="/endpoints", tags=["API Endpoints"])
     summary="Semantic search across user endpoints using natural language",
 )
 async def search_endpoints_semantically(
-    q: str = Query(..., description="Natural language search query (e.g. 'find user orders')"),
+    q: Optional[str] = Query(None, description="Natural language search query (e.g. 'find user orders')"),
+    query: Optional[str] = Query(None, description="Alias for 'q' search query parameter"),
     top_k: int = Query(5, ge=1, le=20, description="Max number of ranked endpoints to return"),
     connection_id: Optional[int] = Query(None, description="Optional connection filter"),
     db: Session = Depends(get_db),
@@ -32,10 +33,16 @@ async def search_endpoints_semantically(
     Search and rank endpoints using nomic-embed-text vector embeddings and cosine similarity.
     Enforces user isolation.
     """
+    search_query = (q or query or "").strip()
+    if not search_query:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Query parameter 'q' (or 'query') must not be empty",
+        )
     results = await semantic_search_endpoints(
         db=db,
         user_id=current_user.id,
-        query=q,
+        query=search_query,
         top_k=top_k,
         connection_id=connection_id,
     )
@@ -154,6 +161,7 @@ def create_endpoint(
         parameters=ep_in.parameters or [],
         request_body_schema=ep_in.request_body_schema,
         response_schema=ep_in.response_schema,
+        security=ep_in.security,
         embedding=ep_in.embedding,
     )
     db.add(endpoint)

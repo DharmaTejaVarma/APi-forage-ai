@@ -72,9 +72,13 @@ def test_error_classification_categories():
     c2 = classify_error(status_code=429, response_body={"error": "Too Many Requests"})
     assert c2["category"] == ErrorCategory.RATE_LIMIT_429
 
-    # Client Error 404
+    # Client Error 404 -> NOT_FOUND
     c3 = classify_error(status_code=404, response_body={"detail": "Product not found"})
-    assert c3["category"] == ErrorCategory.CLIENT_ERROR_4XX
+    assert c3["category"] == ErrorCategory.NOT_FOUND
+
+    # Auth Error 401 -> AUTH_FAILURE
+    c_auth = classify_error(status_code=401, response_body={"detail": "Unauthorized"})
+    assert c_auth["category"] == ErrorCategory.AUTH_FAILURE
 
     # Server Error 500
     c4 = classify_error(status_code=500, response_body={"error": "Internal Server Error"})
@@ -83,6 +87,14 @@ def test_error_classification_categories():
     # Transform SimpleEval Error
     c5 = classify_error(error_message="SimpleEval formula evaluation failed: name 'xyz' is not defined")
     assert c5["category"] == ErrorCategory.TRANSFORM_ERROR
+
+    # Missing Response Fields
+    c_missing = classify_error(error_message="Schema validation error at 'root': 'status' is a required property")
+    assert c_missing["category"] == ErrorCategory.MISSING_RESPONSE_FIELDS
+
+    # Data Mapping Failure
+    c_map = classify_error(error_message="Unresolved data reference(s): {{steps.step_1.output.missing}}")
+    assert c_map["category"] == ErrorCategory.DATA_MAPPING_FAILURE
 
     # Schema Mismatch
     c6 = classify_error(error_message="Schema validation error at 'price': 'abc' is not of type 'number'")
@@ -102,10 +114,10 @@ def test_validate_api_response_wrapper():
     assert res1["valid"] is True
     assert res1["category"] is None
 
-    # Error status code
+    # Error status code 400 -> INVALID_PARAMETERS
     res2 = validate_api_response(400, {"message": "Bad request"})
     assert res2["valid"] is False
-    assert res2["category"] == ErrorCategory.CLIENT_ERROR_4XX
+    assert res2["category"] == ErrorCategory.INVALID_PARAMETERS
 
     # Schema mismatch
     res3 = validate_api_response(200, {"id": "invalid_string"}, expected_schema=schema)

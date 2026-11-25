@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     CHAT_MODEL: str = "qwen2.5:7b-instruct"
     FALLBACK_CHAT_MODEL: str = "qwen2.5:3b"
     EMBED_MODEL: str = "nomic-embed-text"
-    OLLAMA_REQUEST_TIMEOUT: float = 180.0
+    OLLAMA_REQUEST_TIMEOUT: float = 300.0
 
     @property
     def OLLAMA_BASE_URL(self) -> str:

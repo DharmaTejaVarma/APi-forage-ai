@@ -1,13 +1,18 @@
 """
 APIForge AI OpenAPI Specification Parser
-Parses OpenAPI 3.0 / 3.1 and Swagger 2.0 specifications.
+Parses OpenAPI 3.0 / 3.1 and Swagger 2.0 specifications (JSON or YAML).
 Resolves local schema references ($ref), extracts endpoint metadata,
-path/query parameters, request body schemas, and response definitions.
+security schemes, path/query parameters, request body schemas, and response definitions.
 """
 import json
 from copy import deepcopy
 from typing import Dict, Any, List, Optional, Union
 from pydantic import BaseModel, Field
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 
 class ParsedEndpoint(BaseModel):
@@ -19,6 +24,7 @@ class ParsedEndpoint(BaseModel):
     parameters: List[Dict[str, Any]] = Field(default_factory=list)
     request_body_schema: Optional[Dict[str, Any]] = None
     response_schema: Optional[Dict[str, Any]] = None
+    security: Optional[List[Dict[str, Any]]] = None
 
 
 class ParsedOpenAPISpec(BaseModel):
@@ -26,6 +32,7 @@ class ParsedOpenAPISpec(BaseModel):
     version: str
     description: Optional[str] = None
     base_url: Optional[str] = None
+    security_schemes: Dict[str, Any] = Field(default_factory=dict)
     endpoints: List[ParsedEndpoint] = Field(default_factory=list)
 
 
@@ -38,12 +45,27 @@ class OpenAPIParser:
         if isinstance(raw_spec, str):
             try:
                 self.raw_spec = json.loads(raw_spec)
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON string provided for OpenAPI spec: {e}")
+            except json.JSONDecodeError as json_err:
+                if yaml is not None:
+                    try:
+                        loaded = yaml.safe_load(raw_spec)
+                        if isinstance(loaded, dict):
+                            self.raw_spec = loaded
+                        else:
+                            raise ValueError("OpenAPI YAML specification did not parse to an object")
+                    except Exception as yaml_err:
+                        raise ValueError(
+                            f"Invalid JSON/YAML OpenAPI spec: {json_err}; {yaml_err}"
+                        ) from yaml_err
+                else:
+                    raise ValueError(f"Invalid JSON string provided for OpenAPI spec: {json_err}") from json_err
         elif isinstance(raw_spec, dict):
             self.raw_spec = deepcopy(raw_spec)
         else:
-            raise TypeError("Specification must be a JSON string or dict")
+            raise TypeError("Specification must be a JSON/YAML string or dict")
+
+        if "paths" not in self.raw_spec or not isinstance(self.raw_spec.get("paths"), dict):
+            raise ValueError("Invalid OpenAPI specification: missing required 'paths' object")
 
         self.resolved_spec = deepcopy(self.raw_spec)
         self._resolve_all_references()
@@ -101,6 +123,11 @@ class OpenAPIParser:
         version = info.get("version", "1.0.0")
         description = info.get("description", "")
 
+        # Extract security schemes (OpenAPI 3.x & Swagger 2.0)
+        components = self.resolved_spec.get("components", {})
+        security_schemes = components.get("securitySchemes") or self.resolved_spec.get("securityDefinitions") or {}
+        global_security = self.resolved_spec.get("security")
+
         # Extract base_url from servers (OpenAPI 3.x) or host+basePath (Swagger 2.0)
         base_url = None
         servers = self.resolved_spec.get("servers", [])
@@ -134,6 +161,7 @@ class OpenAPIParser:
                 summary = op.get("summary")
                 op_desc = op.get("description")
                 operation_id = op.get("operationId") or f"{method.lower()}_{path.replace('/', '_').replace('{', '').replace('}', '')}"
+                op_security = op.get("security", global_security)
 
                 # Merge path-level and operation-level parameters
                 combined_params: List[Dict[str, Any]] = []
@@ -194,6 +222,35 @@ class OpenAPIParser:
                     elif "schema" in target_resp:
                         response_schema = target_resp.get("schema")
 
+                # Synthesize helpful description/summary when sparse
+                if not summary:
+                    summary = f"{method} {path}".replace("{", "").replace("}", "")
+                if not op_desc:
+                    desc_parts = [f"Executes {method} request on {path}."]
+                    if combined_params:
+                        desc_parts.append(f"Parameters: {', '.join(p['name'] for p in combined_params)}.")
+                    if request_body_schema and isinstance(request_body_schema, dict):
+                        props = request_body_schema.get("properties", {})
+                        if props:
+                            desc_parts.append(f"Accepts JSON fields: {', '.join(props.keys())}.")
+                    op_desc = " ".join(desc_parts)
+
+                # Attach resolved security scheme definitions if declared
+                resolved_security = None
+                if op_security and isinstance(op_security, list):
+                    resolved_security = []
+                    for sec_req in op_security:
+                        if isinstance(sec_req, dict):
+                            for scheme_name, scopes in sec_req.items():
+                                scheme_def = security_schemes.get(scheme_name, {})
+                                resolved_security.append({
+                                    "scheme": scheme_name,
+                                    "type": scheme_def.get("type", "http"),
+                                    "in": scheme_def.get("in", "header"),
+                                    "name": scheme_def.get("name", "Authorization"),
+                                    "scopes": scopes,
+                                })
+
                 parsed_endpoints.append(ParsedEndpoint(
                     path=path,
                     method=method,
@@ -203,6 +260,7 @@ class OpenAPIParser:
                     parameters=combined_params,
                     request_body_schema=request_body_schema,
                     response_schema=response_schema,
+                    security=resolved_security,
                 ))
 
         return ParsedOpenAPISpec(
@@ -210,6 +268,7 @@ class OpenAPIParser:
             version=version,
             description=description,
             base_url=base_url,
+            security_schemes=security_schemes,
             endpoints=parsed_endpoints,
         )
 

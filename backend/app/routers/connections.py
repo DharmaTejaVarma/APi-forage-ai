@@ -50,10 +50,14 @@ async def embed_all_connection_endpoints(
         )
 
     count = await batch_embed_endpoints(db, connection_id)
-    return {"message": f"Successfully generated embeddings for {count} endpoints", "count": count}
+    return {
+        "message": f"Successfully generated embeddings for {count} endpoints",
+        "count": count,
+        "embedded_count": count,
+    }
 
 
-def _to_response_model(conn: APIConnection) -> APIConnectionResponse:
+def _to_response_model(conn: APIConnection, endpoints_count: Optional[int] = None) -> APIConnectionResponse:
     """Helper to convert model to response schema with credentials masked."""
     has_creds = bool(conn.encrypted_credentials)
     return APIConnectionResponse(
@@ -68,6 +72,7 @@ def _to_response_model(conn: APIConnection) -> APIConnectionResponse:
         created_at=conn.created_at,
         updated_at=conn.updated_at,
         has_credentials=has_creds,
+        endpoints_count=endpoints_count,
     )
 
 
@@ -126,13 +131,21 @@ def list_connections(
     current_user: User = Depends(get_current_user),
 ):
     """Retrieve all API connections belonging to the authenticated user."""
+    from sqlalchemy import func
     connections = (
         db.query(APIConnection)
         .filter(APIConnection.user_id == current_user.id)
         .order_by(APIConnection.created_at.desc())
         .all()
     )
-    return [_to_response_model(c) for c in connections]
+    ep_counts = dict(
+        db.query(Endpoint.connection_id, func.count(Endpoint.id))
+        .join(APIConnection, Endpoint.connection_id == APIConnection.id)
+        .filter(APIConnection.user_id == current_user.id)
+        .group_by(Endpoint.connection_id)
+        .all()
+    )
+    return [_to_response_model(c, ep_counts.get(c.id, 0)) for c in connections]
 
 
 @router.get(
@@ -288,6 +301,7 @@ def import_openapi(
             existing_ep.parameters = parsed_ep.parameters
             existing_ep.request_body_schema = parsed_ep.request_body_schema
             existing_ep.response_schema = parsed_ep.response_schema
+            existing_ep.security = parsed_ep.security
             created_endpoints.append(existing_ep)
         else:
             ep = Endpoint(
@@ -300,6 +314,7 @@ def import_openapi(
                 parameters=parsed_ep.parameters,
                 request_body_schema=parsed_ep.request_body_schema,
                 response_schema=parsed_ep.response_schema,
+                security=parsed_ep.security,
             )
             db.add(ep)
             created_endpoints.append(ep)

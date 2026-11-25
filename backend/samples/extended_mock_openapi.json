@@ -1,0 +1,270 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "APIForge Extended Mock Platform API",
+    "description": "Full Mock REST API featuring Store Products, Discounts, Orders, Customers (nested JSON), Email Notifications, and Bearer-Authenticated Secure endpoints.",
+    "version": "1.1.0"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8000/mock/api/v1",
+      "description": "Local APIForge Mock Server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Token"
+      }
+    },
+    "schemas": {
+      "Product": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "example": 5 },
+          "name": { "type": "string", "example": "Mechanical Gaming Keyboard" },
+          "category": { "type": "string", "example": "Electronics" },
+          "price": { "type": "number", "example": 1000.0 },
+          "stock": { "type": "integer", "example": 45 }
+        },
+        "required": ["id", "name", "price", "stock"]
+      },
+      "Customer": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "example": 2 },
+          "name": { "type": "string", "example": "Alice Morgan" },
+          "tier": { "type": "string", "example": "gold" },
+          "contact": {
+            "type": "object",
+            "properties": {
+              "email": { "type": "string", "example": "alice.morgan@example.com" },
+              "phone": { "type": "string", "example": "+1-555-0102" }
+            },
+            "required": ["email"]
+          }
+        },
+        "required": ["id", "name", "contact"]
+      },
+      "OrderCreateRequest": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "integer", "example": 5 },
+          "final_price": { "type": "number", "example": 900.0 },
+          "quantity": { "type": "integer", "example": 1, "default": 1 },
+          "customer_email": { "type": "string", "example": "demo@apiforge.ai" }
+        },
+        "required": ["product_id", "final_price"]
+      },
+      "OrderResponse": {
+        "type": "object",
+        "properties": {
+          "order_id": { "type": "string", "example": "ORD-5001" },
+          "product_id": { "type": "integer", "example": 5 },
+          "final_price": { "type": "number", "example": 900.0 },
+          "quantity": { "type": "integer", "example": 1 },
+          "status": { "type": "string", "example": "confirmed" },
+          "created_at": { "type": "string" }
+        },
+        "required": ["order_id", "status", "final_price"]
+      },
+      "EmailRequest": {
+        "type": "object",
+        "properties": {
+          "to": { "type": "string", "example": "alice.morgan@example.com" },
+          "recipient": { "type": "string", "example": "alice.morgan@example.com" },
+          "subject": { "type": "string", "example": "Product Update" },
+          "body": { "type": "string", "example": "Details about your product" }
+        },
+        "required": ["subject", "body"]
+      },
+      "EmailResponse": {
+        "type": "object",
+        "properties": {
+          "message_id": { "type": "string", "example": "MSG-101" },
+          "recipient": { "type": "string" },
+          "subject": { "type": "string" },
+          "body": { "type": "string" },
+          "status": { "type": "string", "example": "sent" },
+          "sent_at": { "type": "string" }
+        },
+        "required": ["message_id", "recipient", "status"]
+      },
+      "SecureProfileResponse": {
+        "type": "object",
+        "properties": {
+          "service": { "type": "string" },
+          "account_id": { "type": "string" },
+          "clearance": { "type": "string" },
+          "authenticated": { "type": "boolean" }
+        },
+        "required": ["service", "account_id", "authenticated"]
+      }
+    }
+  },
+  "paths": {
+    "/products": {
+      "get": {
+        "summary": "List all products",
+        "description": "Returns the catalog array of available store products with id, name, price, and stock.",
+        "operationId": "getProducts",
+        "responses": {
+          "200": {
+            "description": "Array of products",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Product" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/products/{id}": {
+      "get": {
+        "summary": "Get product details by ID",
+        "description": "Retrieves detailed product information including name (title), price, category, and stock for a numeric product ID.",
+        "operationId": "getProductById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Unique numeric product ID",
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Product object",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } }
+          }
+        }
+      }
+    },
+    "/discounts/calculate": {
+      "post": {
+        "summary": "Calculate discounted price",
+        "description": "Computes discounted price given original price and discount percentage.",
+        "operationId": "calculateDiscount",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "price": { "type": "number" },
+                  "discount_percentage": { "type": "number" }
+                },
+                "required": ["price", "discount_percentage"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Discount calculation" }
+        }
+      }
+    },
+    "/orders": {
+      "post": {
+        "summary": "Create purchase order",
+        "description": "Submits a new order with product_id, final_price, optional quantity, and customer_email.",
+        "operationId": "createOrder",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/OrderCreateRequest" } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Order created",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrderResponse" } } }
+          }
+        }
+      }
+    },
+    "/orders/{id}": {
+      "get": {
+        "summary": "Get order status by ID",
+        "description": "Retrieves order details and status for an order ID like ORD-5001.",
+        "operationId": "getOrderById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Order ID",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order status",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrderResponse" } } }
+          }
+        }
+      }
+    },
+    "/customers/{id}": {
+      "get": {
+        "summary": "Get customer details by ID",
+        "description": "Retrieves customer profile with nested contact.email and address metadata.",
+        "operationId": "getCustomerById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Customer ID",
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Customer record",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Customer" } } }
+          }
+        }
+      }
+    },
+    "/notifications/email": {
+      "post": {
+        "summary": "Send an email notification",
+        "description": "Dispatches an email notification using subject, body, and recipient ('to' or 'recipient').",
+        "operationId": "sendEmailNotification",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/EmailRequest" } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Email sent",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmailResponse" } } }
+          }
+        }
+      }
+    },
+    "/secure/profile": {
+      "get": {
+        "summary": "Retrieve protected enterprise vault profile",
+        "description": "Authenticated endpoint requiring a configured Bearer authorization token.",
+        "operationId": "getSecureProfile",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Protected profile returned",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SecureProfileResponse" } } }
+          }
+        }
+      }
+    }
+  }
+}
+

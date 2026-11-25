@@ -103,6 +103,7 @@ class Endpoint(Base):
     parameters: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSON, nullable=True, default=list)
     request_body_schema: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     response_schema: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    security: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSON, nullable=True)
     embedding: Mapped[Optional[List[float]]] = mapped_column(JSON, nullable=True)  # Vector from nomic-embed-text
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -115,6 +116,10 @@ class Endpoint(Base):
     __table_args__ = (
         Index("ix_endpoints_connection_method_path", "connection_id", "method", "path"),
     )
+
+    @property
+    def has_embedding(self) -> bool:
+        return bool(self.embedding)
 
     def __repr__(self) -> str:
         return f"<Endpoint id={self.id} method={self.method} path={self.path}>"
@@ -169,9 +174,12 @@ class WorkflowExecution(Base):
     execution_logs: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSON, nullable=True, default=list)
     requires_approval: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     pending_approval_step: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    approved_steps: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True, default=list)
+    pending_approval_details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     approval_status: Mapped[str] = mapped_column(
         String(50), default="not_required", nullable=False
     )  # "not_required", "pending", "approved", "rejected"
+    final_output: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     error_details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

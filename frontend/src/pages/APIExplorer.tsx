@@ -8,7 +8,7 @@ export const APIExplorer: React.FC = () => {
   const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
   const [selectedConnection, setSelectedConnection] = useState<number | 'all'>('all');
   const [semanticQuery, setSemanticQuery] = useState('');
-  const [semanticResults, setSemanticResults] = useState<Array<{ endpoint: Endpoint; similarity: number }> | null>(null);
+  const [semanticResults, setSemanticResults] = useState<Array<{ endpoint: Endpoint; similarity_score: number }> | null>(null);
   const [searching, setSearching] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -45,11 +45,11 @@ export const APIExplorer: React.FC = () => {
     }
     setSearching(true);
     try {
-      const res = await api.searchSemantic(
+      const results = await api.searchSemantic(
         semanticQuery,
         selectedConnection === 'all' ? undefined : selectedConnection
       );
-      setSemanticResults(res.results);
+      setSemanticResults(results);
     } catch (err) {
       console.error('Semantic search failed:', err);
     } finally {
@@ -170,12 +170,17 @@ export const APIExplorer: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0 text-xs">
-                  {matchInfo && (
-                    <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 font-mono text-[10px]">
-                      {(matchInfo.similarity * 100).toFixed(1)}% Match
+                  {ep.security && ep.security.length > 0 && (
+                    <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-mono text-[10px]">
+                      Auth Required
                     </span>
                   )}
-                  {ep.embedding ? (
+                  {matchInfo && (
+                    <span className="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 font-mono text-[10px]">
+                      {(matchInfo.similarity_score * 100).toFixed(1)}% Match
+                    </span>
+                  )}
+                  {(ep.has_embedding || ep.embedding) ? (
                     <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono">
                       <CheckCircle2 className="w-3 h-3" /> Vectorized
                     </span>

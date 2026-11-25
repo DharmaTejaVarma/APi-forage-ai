@@ -44,7 +44,9 @@ export interface Endpoint {
   }>;
   request_body_schema?: Record<string, any>;
   response_schema?: Record<string, any>;
+  security?: Array<Record<string, any>>;
   embedding?: number[];
+  has_embedding?: boolean;
   created_at: string;
 }
 
@@ -54,19 +56,27 @@ export interface WorkflowNode {
   position: { x: number; y: number };
   data: {
     label: string;
+    step_id?: string;
     method?: string;
     path?: string;
     connection_id?: number;
     endpoint_id?: number;
     parameters?: Record<string, any>;
+    headers?: Record<string, any>;
     request_body?: Record<string, any>;
     transformation?: {
-      formula: string;
-      inputs: Record<string, any>;
+      operation?: string;
+      formula?: string;
+      inputs?: Record<string, any>;
+      [key: string]: any;
     };
+    condition?: any;
+    when?: string;
+    output_var?: string;
+    error_handling?: Record<string, any>;
     requires_approval?: boolean;
     step_type?: string;
-    status?: 'pending' | 'running' | 'waiting_approval' | 'completed' | 'failed';
+    status?: 'pending' | 'running' | 'waiting_approval' | 'completed' | 'failed' | 'skipped';
     output?: any;
     error?: string;
   };
@@ -96,11 +106,29 @@ export interface Workflow {
 }
 
 export interface ExecutionStepResult {
-  status: 'completed' | 'failed' | 'skipped';
+  step_id?: string;
+  label?: string;
+  step_type?: string;
+  status: 'pending' | 'running' | 'waiting_approval' | 'completed' | 'failed' | 'skipped';
+  method?: string;
+  endpoint?: string;
+  request?: {
+    method: string;
+    url: string;
+    headers?: Record<string, any>;
+    params?: Record<string, any>;
+    body?: any;
+  };
+  transferred_variables?: Record<string, any>;
+  transformation_result?: any;
+  condition_result?: boolean;
   status_code?: number;
   output?: any;
   elapsed_ms?: number;
+  attempts?: number;
   error?: string;
+  error_category?: string;
+  reason?: string;
 }
 
 export interface ExecutionLog {
@@ -128,6 +156,25 @@ export interface ErrorDiagnosis {
   requires_user_approval: boolean;
 }
 
+export interface PendingApprovalDetails {
+  step_id: string;
+  label?: string;
+  method?: string;
+  endpoint?: string;
+  headers?: Record<string, any>;
+  parameters?: Record<string, any>;
+  request_body?: any;
+  data_being_modified?: any;
+  transferred_variables?: Record<string, any>;
+  workflow_plan?: Array<{
+    step_id: string;
+    label?: string;
+    method?: string;
+    path?: string;
+    status: string;
+  }>;
+}
+
 export interface WorkflowExecution {
   id: number;
   workflow_id: number;
@@ -137,7 +184,10 @@ export interface WorkflowExecution {
   execution_logs?: ExecutionLog[];
   requires_approval: boolean;
   pending_approval_step?: string;
+  approved_steps?: string[];
+  pending_approval_details?: PendingApprovalDetails;
   approval_status: 'not_required' | 'pending' | 'approved' | 'rejected';
+  final_output?: any;
   error_details?: {
     step_id?: string;
     category?: string;

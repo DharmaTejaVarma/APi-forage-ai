@@ -11,9 +11,16 @@ export const History: React.FC = () => {
   useEffect(() => {
     async function load() {
       try {
-        const summary = await api.getDashboardSummary();
-        // Fallback or load from recent
-        setExecutions(summary.recent_executions as any);
+        const [execList, wfList] = await Promise.all([
+          api.listExecutions(100),
+          api.getWorkflows().catch(() => []),
+        ]);
+        const titleMap = new Map<number, string>(wfList.map((w) => [w.id, w.title]));
+        const enriched = execList.map((ex) => ({
+          ...ex,
+          workflow_title: titleMap.get(ex.workflow_id) || `Workflow #${ex.workflow_id}`,
+        }));
+        setExecutions(enriched as any);
       } catch (err) {
         console.error(err);
       } finally {

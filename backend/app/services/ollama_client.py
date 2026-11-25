@@ -51,6 +51,7 @@ class OllamaClient:
         payload = {
             "model": target_model,
             "prompt": prompt,
+            "keep_alive": "10m",
         }
 
         async with httpx.AsyncClient(timeout=self.current_timeout) as client:
@@ -86,6 +87,7 @@ class OllamaClient:
             "messages": messages,
             "stream": False,
             "options": opts,
+            "keep_alive": "10m",
         }
         if format:
             payload["format"] = format
@@ -104,7 +106,8 @@ class OllamaClient:
                         return fallback_resp.json().get("message", {}).get("content", "")
                 raise RuntimeError(f"Ollama chat error (HTTP {resp.status_code}): {resp.text}")
             except (httpx.ConnectError, httpx.TimeoutException) as e:
-                raise RuntimeError(f"Ollama connection error: {str(e)}") from e
+                detail = str(e) or type(e).__name__
+                raise RuntimeError(f"Ollama connection error ({type(e).__name__}): {detail}") from e
 
     async def generate(
         self,
@@ -121,6 +124,7 @@ class OllamaClient:
             "prompt": prompt,
             "stream": False,
             "options": {"temperature": temperature},
+            "keep_alive": "10m",
         }
         if system:
             payload["system"] = system

@@ -30,11 +30,13 @@ import {
 import { api } from '../api/client';
 import { APICallNode } from '../components/workflow/APICallNode';
 import { TransformNode } from '../components/workflow/TransformNode';
+import { ConditionNode } from '../components/workflow/ConditionNode';
 import { Workflow } from '../types';
 
 const nodeTypes = {
   api_call: APICallNode,
   transform: TransformNode,
+  condition: ConditionNode,
 };
 
 export const WorkflowBuilder: React.FC = () => {
@@ -84,8 +86,9 @@ export const WorkflowBuilder: React.FC = () => {
             data: {
               label: 'Calculate 10% Discount',
               transformation: {
+                operation: 'calculate',
                 formula: 'price * 0.9',
-                inputs: { price: '{{step_1.output.price}}' },
+                inputs: { price: '{{steps.step_1.output.price}}' },
               },
               requires_approval: false,
             },
@@ -99,8 +102,8 @@ export const WorkflowBuilder: React.FC = () => {
               method: 'POST',
               path: '/orders',
               request_body: {
-                product_id: '{{step_1.output.id}}',
-                final_price: '{{step_2.output}}',
+                product_id: '{{steps.step_1.output.id}}',
+                final_price: '{{steps.step_2.output}}',
                 quantity: 1,
               },
               requires_approval: true, // Rule 8!
@@ -392,6 +395,54 @@ export const WorkflowBuilder: React.FC = () => {
                     onChange={(e) => updateSelectedNodeData('path', e.target.value)}
                     placeholder="/products/{id}"
                     className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Parameters (JSON)</label>
+                  <textarea
+                    rows={2}
+                    value={JSON.stringify((selectedNode.data as any).parameters || {}, null, 2)}
+                    onChange={(e) => {
+                      try {
+                        updateSelectedNodeData('parameters', JSON.parse(e.target.value));
+                      } catch {
+                        // ignore invalid intermediate JSON while typing
+                      }
+                    }}
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Headers (JSON)</label>
+                  <textarea
+                    rows={2}
+                    value={JSON.stringify((selectedNode.data as any).headers || {}, null, 2)}
+                    onChange={(e) => {
+                      try {
+                        updateSelectedNodeData('headers', JSON.parse(e.target.value));
+                      } catch {
+                        // ignore intermediate
+                      }
+                    }}
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Request Body (JSON)</label>
+                  <textarea
+                    rows={3}
+                    value={JSON.stringify((selectedNode.data as any).request_body || {}, null, 2)}
+                    onChange={(e) => {
+                      try {
+                        updateSelectedNodeData('request_body', JSON.parse(e.target.value));
+                      } catch {
+                        // ignore intermediate
+                      }
+                    }}
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
 
