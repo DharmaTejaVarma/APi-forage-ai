@@ -71,6 +71,51 @@ async def generate_workflow_multi_agent(
 
 
 @router.post(
+    "/generate-fast",
+    response_model=WorkflowResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Sub-second ultra-fast workflow generation",
+)
+async def generate_workflow_fast(
+    req: GenerateWorkflowRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Sub-second (< 100ms) autonomous workflow generation with NetworkX DAG validation
+    and mandatory Rule 8 human approval gates.
+    """
+    from app.services.fast_planner import generate_fast_workflow_plan
+    try:
+        plan, nodes, edges, dag_structure = generate_fast_workflow_plan(
+            prompt=req.prompt,
+            user_id=current_user.id,
+            db=db,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Fast workflow generation failed: {str(e)}",
+        )
+
+    workflow = Workflow(
+        user_id=current_user.id,
+        title=plan.workflow_title,
+        description=plan.workflow_description,
+        raw_prompt=req.prompt,
+        nodes=nodes,
+        edges=edges,
+        dag_structure=dag_structure,
+        status="draft",
+        is_shared=False,
+    )
+    db.add(workflow)
+    db.commit()
+    db.refresh(workflow)
+    return workflow
+
+
+@router.post(
     "/generate",
     response_model=WorkflowResponse,
     status_code=status.HTTP_201_CREATED,

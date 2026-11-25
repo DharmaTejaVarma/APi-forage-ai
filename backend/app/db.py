@@ -62,8 +62,8 @@ def check_db_connectivity() -> bool:
 
 
 def seed_demo_users() -> None:
-    """Seed demo and admin accounts if they do not already exist."""
-    from app.models import User
+    """Seed demo and admin accounts with Mock Store API endpoints if they do not already exist."""
+    from app.models import User, APIConnection, Endpoint
     from app.security import get_password_hash
 
     db = SessionLocal()
@@ -78,6 +78,8 @@ def seed_demo_users() -> None:
                 is_active=True,
             )
             db.add(demo_user)
+            db.commit()
+            db.refresh(demo_user)
 
         # Admin user
         admin_user = db.query(User).filter(User.email == "admin@apiforge.ai").first()
@@ -89,6 +91,33 @@ def seed_demo_users() -> None:
                 is_active=True,
             )
             db.add(admin_user)
+            db.commit()
+
+        # Seed Mock Store API connection and endpoints for demo user
+        mock_conn = db.query(APIConnection).filter_by(user_id=demo_user.id, name="Mock Store API").first()
+        if not mock_conn:
+            mock_conn = APIConnection(
+                user_id=demo_user.id,
+                name="Mock Store API",
+                description="Mock E-Commerce API for testing automated DAG workflows, discounts, and orders.",
+                base_url="http://127.0.0.1:8000/mock/api/v1",
+                auth_type="none",
+            )
+            db.add(mock_conn)
+            db.commit()
+            db.refresh(mock_conn)
+
+        eps = db.query(Endpoint).filter_by(connection_id=mock_conn.id).all()
+        if not eps:
+            demo_eps = [
+                Endpoint(connection_id=mock_conn.id, path="/mock/api/v1/products", method="GET", summary="List all products in catalog"),
+                Endpoint(connection_id=mock_conn.id, path="/mock/api/v1/products/{id}", method="GET", summary="Get product details by ID", parameters=[{"name": "id", "in": "path", "required": True}]),
+                Endpoint(connection_id=mock_conn.id, path="/mock/api/v1/discounts/calculate", method="POST", summary="Calculate discounted price", request_body_schema={"properties": {"price": {"type": "number"}, "discount_percentage": {"type": "number"}}}),
+                Endpoint(connection_id=mock_conn.id, path="/mock/api/v1/orders", method="POST", summary="Submit purchase order", request_body_schema={"properties": {"product_id": {"type": "integer"}, "final_price": {"type": "number"}}}),
+                Endpoint(connection_id=mock_conn.id, path="/mock/api/v1/orders/{order_id}", method="GET", summary="Get order details by ID", parameters=[{"name": "order_id", "in": "path", "required": True}]),
+            ]
+            db.add_all(demo_eps)
+            db.commit()
 
         db.commit()
     except Exception as e:

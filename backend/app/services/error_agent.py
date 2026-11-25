@@ -81,7 +81,7 @@ async def diagnose_step_failure(
 - Path: {node_data.get('path')}
 - Parameters: {json.dumps(node_data.get('parameters') or {})}
 - Request Body: {json.dumps(node_data.get('request_body') or {})}
-- Formula (if transform): {node_data.get('transformation', {}).get('formula')}
+- Formula (if transform): {(node_data.get('transformation') or {}).get('formula')}
 
 Error Information:
 - Category: {category}

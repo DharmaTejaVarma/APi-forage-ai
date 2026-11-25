@@ -10,6 +10,8 @@ import {
   Layers,
   Cpu,
   Bot,
+  Zap,
+  Timer,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { Workflow } from '../types';
@@ -18,22 +20,23 @@ export const Generator: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const DEMO_PROMPT =
+  const PROMPT_EMAIL =
+    'Fetch product 3, extract its title, and send an email containing the product title using the email API.';
+  const PROMPT_DISCOUNT =
     'Fetch product 5, calculate a 10% discount using SimpleEval, and create an order with the discounted price.';
 
   const [prompt, setPrompt] = useState(
-    searchParams.get('demo') === 'true'
-      ? DEMO_PROMPT
-      : 'Fetch product 5, calculate a 10% discount using SimpleEval, and create an order with the discounted price.'
+    searchParams.get('demo') === 'true' ? PROMPT_DISCOUNT : PROMPT_EMAIL
   );
-  const [useMultiAgent, setUseMultiAgent] = useState(true);
+  const [mode, setMode] = useState<'fast' | 'multi_agent'>('fast');
   const [generating, setGenerating] = useState(false);
   const [generatedWorkflow, setGeneratedWorkflow] = useState<Workflow | null>(null);
+  const [generationTimeMs, setGenerationTimeMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (searchParams.get('demo') === 'true') {
-      setPrompt(DEMO_PROMPT);
+      setPrompt(PROMPT_DISCOUNT);
     }
   }, [searchParams]);
 
@@ -44,14 +47,17 @@ export const Generator: React.FC = () => {
     setError(null);
     setGenerating(true);
     setGeneratedWorkflow(null);
+    setGenerationTimeMs(null);
+    const start = performance.now();
 
     try {
       let wf: Workflow;
-      if (useMultiAgent) {
-        wf = await api.generateWorkflowMultiAgent(prompt);
+      if (mode === 'fast') {
+        wf = await api.generateWorkflowFast(prompt);
       } else {
-        wf = await api.generateWorkflow(prompt);
+        wf = await api.generateWorkflowMultiAgent(prompt);
       }
+      setGenerationTimeMs(Math.round(performance.now() - start));
       setGeneratedWorkflow(wf);
     } catch (err: any) {
       setError(err.message || 'Workflow generation failed.');
@@ -82,7 +88,7 @@ export const Generator: React.FC = () => {
           Autonomous AI Workflow Generator
         </h2>
         <p className="text-xs text-slate-400 mt-1">
-          Instruct local Ollama (qwen2.5:7b-instruct) in plain language. Generates validated, acyclic JSON DAG plans with Rule 8 approval enforcement.
+          Instruct APIForge in plain natural language. Generates validated, acyclic JSON DAG plans with Rule 8 approval enforcement in 1–2 seconds.
         </p>
       </div>
 
@@ -95,23 +101,30 @@ export const Generator: React.FC = () => {
                 Natural-Language Instruction:
               </label>
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-slate-400 font-medium">Multi-Agent Mode:</span>
                 <button
                   type="button"
-                  onClick={() => setUseMultiAgent(!useMultiAgent)}
-                  className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
-                    useMultiAgent ? 'bg-indigo-600' : 'bg-slate-700'
+                  onClick={() => setMode('fast')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                    mode === 'fast'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm shadow-emerald-500/10'
+                      : 'bg-slate-800/80 text-slate-400 border border-slate-700/80 hover:text-slate-300'
                   }`}
                 >
-                  <div
-                    className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                      useMultiAgent ? 'translate-x-4' : 'translate-x-0'
-                    }`}
-                  />
+                  <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                  Ultra-Fast (1-2s)
                 </button>
-                <span className="text-[10px] text-cyan-400 font-mono">
-                  {useMultiAgent ? 'LangGraph' : 'Single'}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setMode('multi_agent')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                    mode === 'multi_agent'
+                      ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm shadow-indigo-500/10'
+                      : 'bg-slate-800/80 text-slate-400 border border-slate-700/80 hover:text-slate-300'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                  Multi-Agent (LangGraph)
+                </button>
               </div>
             </div>
 
@@ -119,9 +132,28 @@ export const Generator: React.FC = () => {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={3}
-              placeholder="e.g. Fetch product 5, calculate a 10% discount, and create an order with the discounted price."
+              placeholder="e.g. Fetch product 3, extract its title, and send an email containing the product title using the email API."
               className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors shadow-inner"
             />
+
+            {/* Quick Prompt Suggestions */}
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <span className="text-[11px] text-slate-500 font-medium">Quick Presets:</span>
+              <button
+                type="button"
+                onClick={() => setPrompt(PROMPT_EMAIL)}
+                className="text-[11px] px-2.5 py-1 rounded-md bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-slate-700/60 transition-colors"
+              >
+                📧 Product 3 Title → Email API
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrompt(PROMPT_DISCOUNT)}
+                className="text-[11px] px-2.5 py-1 rounded-md bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-slate-700/60 transition-colors"
+              >
+                🏷️ Product 5 → 10% Discount → Create Order
+              </button>
+            </div>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
@@ -133,6 +165,9 @@ export const Generator: React.FC = () => {
               <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-800/80 border border-slate-700 text-slate-300">
                 <Cpu className="w-3.5 h-3.5 text-cyan-400" />
                 nomic-embed
+              </span>
+              <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono text-[11px]">
+                <Zap className="w-3 h-3 text-emerald-400" /> Target: &lt; 2s
               </span>
             </div>
 
@@ -157,9 +192,11 @@ export const Generator: React.FC = () => {
         {generating && (
           <div className="p-6 rounded-xl bg-slate-950/70 border border-slate-800 text-center space-y-3 animate-pulse">
             <div className="w-10 h-10 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mx-auto" />
-            <div className="text-sm font-semibold text-white">Multi-Agent Graph Orchestration in Progress</div>
+            <div className="text-sm font-semibold text-white">
+              {mode === 'fast' ? '⚡ Ultra-Fast DAG Generation in Progress...' : 'Multi-Agent Graph Orchestration in Progress...'}
+            </div>
             <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Running Intent Detection → Semantic Retrieval (nomic-embed-text) → Schema Analysis → DAG Planning → Rule 8 Approval Verification.
+              Running Intent Detection → Schema Analysis → DAG Planning → Rule 8 Approval Verification.
             </p>
           </div>
         )}
@@ -170,10 +207,16 @@ export const Generator: React.FC = () => {
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-6 animate-in fade-in duration-300">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
             <div>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   DAG PLAN GENERATED
                 </span>
+                {generationTimeMs !== null && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                    <Timer className="w-3 h-3 text-cyan-400" />
+                    {(generationTimeMs / 1000).toFixed(2)}s
+                  </span>
+                )}
                 <span className="text-xs text-slate-400 font-mono">ID: #{generatedWorkflow.id}</span>
               </div>
               <h3 className="text-lg font-bold text-white">{generatedWorkflow.title}</h3>

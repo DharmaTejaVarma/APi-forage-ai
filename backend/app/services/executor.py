@@ -239,7 +239,11 @@ class DAGExecutor:
             else:
                 query_params[p_name] = p_val
 
-        full_url = f"{base_url.rstrip('/')}/{resolved_path.lstrip('/')}"
+        clean_path = resolved_path.lstrip('/')
+        base_clean = base_url.rstrip('/')
+        if '/mock/api/v1' in base_clean and clean_path.startswith('mock/api/v1/'):
+            clean_path = clean_path[len('mock/api/v1/'):]
+        full_url = f"{base_clean}/{clean_path}"
 
         # Resolve request body
         raw_body = node_data.get("request_body")

@@ -250,13 +250,20 @@ async def generate_workflow_from_prompt(
 ) -> tuple[GeneratedWorkflowPlan, List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
     """
     Orchestrate workflow generation:
-    1. Semantically retrieve relevant endpoints for user instruction.
-    2. Format prompt and invoke Ollama local LLM with JSON format mode.
+    1. Try ultra-fast pattern planner (< 50ms) for high-speed response.
+    2. Fallback to local Ollama LLM with semantic retrieval and JSON format mode.
     3. Validate JSON with Pydantic and static DAG verification.
     4. Enforce approval constraints (Rule 8).
     5. Convert into visual React Flow nodes and edges.
     """
-    # 1. Discover relevant endpoints
+    # 0. Ultra-Fast Planner (< 50ms)
+    try:
+        from app.services.fast_planner import generate_fast_workflow_plan
+        return generate_fast_workflow_plan(prompt=prompt, user_id=user_id, db=db)
+    except Exception as exc:
+        logger.info(f"Fast planner bypassed for prompt '{prompt[:40]}': {exc}")
+
+    # 1. Discover relevant endpoints via semantic search
     search_results = await semantic_search_endpoints(
         db=db,
         user_id=user_id,

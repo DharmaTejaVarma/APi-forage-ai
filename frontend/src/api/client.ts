@@ -84,8 +84,7 @@ export const api = {
     request<Endpoint[]>(connectionId ? `/endpoints?connection_id=${connectionId}` : '/endpoints'),
   searchSemantic: (query: string, connectionId?: number) =>
     request<{ results: Array<{ endpoint: Endpoint; similarity: number }> }>(
-      `/endpoints/search/semantic?query=${encodeURIComponent(query)}${
-        connectionId ? `&connection_id=${connectionId}` : ''
+      `/endpoints/search/semantic?query=${encodeURIComponent(query)}${connectionId ? `&connection_id=${connectionId}` : ''
       }`
     ),
 
@@ -98,6 +97,12 @@ export const api = {
     request<Workflow>(`/workflows/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteWorkflow: (id: number) =>
     request<{ message: string }>(`/workflows/${id}`, { method: 'DELETE' }),
+
+  generateWorkflowFast: (prompt: string) =>
+    request<Workflow>('/workflows/generate-fast', {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+    }),
 
   generateWorkflow: (prompt: string) =>
     request<Workflow>('/workflows/generate', {
