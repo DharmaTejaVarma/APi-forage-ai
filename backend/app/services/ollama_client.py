@@ -3,28 +3,47 @@ APIForge AI Ollama Client Service
 Async HTTP client for local Ollama server (Chat, Completion, and Embeddings).
 Zero cloud dependencies.
 """
+import re
+import ssl
 from typing import List, Dict, Any, Optional
+import certifi
 import httpx
 from app.config import get_settings
 
 settings = get_settings()
+
+# Pre-build SSLContext once at module load to avoid ~1.2-1.5s/call Windows CA store scanning in httpx.AsyncClient()
+_SHARED_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+
+
+def _normalize_ollama_url(url: str) -> str:
+    """Resolve localhost -> 127.0.0.1 to avoid Windows IPv6 [::1] connect backoff (~2s/req)."""
+    clean = url.rstrip("/")
+    return re.sub(r"^(https?://)localhost(?=:|$|/)", r"\g<1>127.0.0.1", clean, flags=re.IGNORECASE)
 
 
 class OllamaClient:
     """Client for local Ollama API communication."""
 
     def __init__(self, base_url: Optional[str] = None, timeout: Optional[float] = None):
-        self.base_url = (base_url or settings.OLLAMA_URL).rstrip("/")
+        self.base_url = _normalize_ollama_url(base_url or settings.OLLAMA_URL)
         self.timeout = timeout or settings.OLLAMA_REQUEST_TIMEOUT
 
     @property
     def current_timeout(self) -> float:
         return self.timeout or get_settings().OLLAMA_REQUEST_TIMEOUT
 
+    def _client(self, timeout: Optional[float] = None) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            timeout=timeout or self.current_timeout,
+            verify=_SHARED_SSL_CONTEXT,
+            trust_env=False,
+        )
+
     async def is_healthy(self) -> bool:
         """Verify Ollama server is reachable."""
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with self._client(timeout=5.0) as client:
                 r = await client.get(f"{self.base_url}/api/tags")
                 return r.status_code == 200
         except Exception:
@@ -33,7 +52,7 @@ class OllamaClient:
     async def list_models(self) -> List[str]:
         """Return list of installed Ollama model names."""
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with self._client(timeout=5.0) as client:
                 r = await client.get(f"{self.base_url}/api/tags")
                 if r.status_code == 200:
                     data = r.json()
@@ -54,7 +73,7 @@ class OllamaClient:
             "keep_alive": "10m",
         }
 
-        async with httpx.AsyncClient(timeout=self.current_timeout) as client:
+        async with self._client() as client:
             resp = await client.post(f"{self.base_url}/api/embeddings", json=payload)
             if resp.status_code != 200:
                 raise RuntimeError(
@@ -65,6 +84,28 @@ class OllamaClient:
             if not embedding or not isinstance(embedding, list):
                 raise ValueError(f"Unexpected embedding response structure: {data}")
             return embedding
+
+    async def embed_batch(self, prompts: List[str], model: Optional[str] = None) -> List[List[float]]:
+        """Batch-generate embeddings in a single Ollama `/api/embed` call with fallback."""
+        if not prompts:
+            return []
+        target_model = model or settings.EMBED_MODEL
+        payload = {
+            "model": target_model,
+            "input": prompts,
+            "keep_alive": "10m",
+        }
+        try:
+            async with self._client() as client:
+                resp = await client.post(f"{self.base_url}/api/embed", json=payload)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    vecs = data.get("embeddings")
+                    if isinstance(vecs, list) and len(vecs) == len(prompts):
+                        return vecs
+        except Exception:
+            pass
+        return [await self.embeddings(p, model=target_model) for p in prompts]
 
     async def chat(
         self,
@@ -92,7 +133,7 @@ class OllamaClient:
         if format:
             payload["format"] = format
 
-        async with httpx.AsyncClient(timeout=self.current_timeout) as client:
+        async with self._client() as client:
             try:
                 resp = await client.post(f"{self.base_url}/api/chat", json=payload)
                 if resp.status_code == 200:
@@ -131,7 +172,7 @@ class OllamaClient:
         if format:
             payload["format"] = format
 
-        async with httpx.AsyncClient(timeout=self.current_timeout) as client:
+        async with self._client() as client:
             resp = await client.post(f"{self.base_url}/api/generate", json=payload)
             if resp.status_code != 200:
                 raise RuntimeError(f"Ollama generate error (HTTP {resp.status_code}): {resp.text}")

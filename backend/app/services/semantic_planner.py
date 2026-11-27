@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from app.models import APIConnection, Endpoint
-from app.services.embeddings import semantic_search_endpoints
+from app.services.embeddings import _compute_lexical_and_intent_score, semantic_search_endpoints
 from app.services.workflow_generator import (
     GeneratedWorkflowPlan,
     WorkflowStepPlan,
@@ -738,40 +738,22 @@ async def _build_steps_for_clauses(
     db: Session,
     user_id: int,
     user_endpoints: List[Endpoint],
+    discovered_ids: Optional[set] = None,
     start_index: int = 1,
     initial_history: Optional[List[Dict[str, Any]]] = None,
     branch_when: Optional[str] = None,
     condition_step_id: Optional[str] = None,
 ) -> Tuple[List[WorkflowStepPlan], List[Dict[str, Any]], int]:
-    """Convert ordered NL clauses into validated WorkflowStepPlan objects using concurrent semantic search."""
+    """Convert ordered NL clauses into validated WorkflowStepPlan objects using semantic & schema scoring."""
     history: List[Dict[str, Any]] = list(initial_history or [])
     built_steps: List[WorkflowStepPlan] = []
     idx = start_index
+    disc_set = discovered_ids or set()
 
-    # Run Ollama `nomic-embed-text` discovery concurrently for all non-transform clauses (~0.2-0.4s!)
-    api_clauses: List[Tuple[int, str]] = []
-    clause_kinds: List[Tuple[int, str, Optional[str]]] = []
-    for c_i, clause in enumerate(clauses):
-        tx_op = _is_transform_clause(clause.lower())
-        clause_kinds.append((c_i, clause, tx_op))
-        if tx_op is None:
-            api_clauses.append((c_i, clause))
-
-    search_tasks = [
-        semantic_search_endpoints(
-            db=db,
-            user_id=user_id,
-            query=clause,
-            top_k=5,
-            auto_embed_missing=(pos == 0),
-        )
-        for pos, (_, clause) in enumerate(api_clauses)
+    clause_kinds: List[Tuple[int, str, Optional[str]]] = [
+        (c_i, clause, _is_transform_clause(clause.lower()))
+        for c_i, clause in enumerate(clauses)
     ]
-    search_results_list = await asyncio.gather(*search_tasks) if search_tasks else []
-    search_by_clause_idx = {
-        c_idx: res
-        for (c_idx, _), res in zip(api_clauses, search_results_list)
-    }
 
     for c_i, clause, tx_op in clause_kinds:
         step_id = f"step_{idx}"
@@ -794,8 +776,14 @@ async def _build_steps_for_clauses(
             })
             continue
 
-        # API Call Step
-        ranked = search_by_clause_idx.get(c_i) or []
+        # API Call Step: score registered endpoints using clause lexical/intent + Discovery Agent boost (<1ms)
+        ranked = [
+            {
+                "endpoint": ep,
+                "similarity_score": _compute_lexical_and_intent_score(ep, clause) + (0.15 if ep.id in disc_set else 0.0),
+            }
+            for ep in user_endpoints
+        ]
         ep = _select_best_endpoint(clause, ranked, user_endpoints)
         if not ep:
             raise ValueError("No matching registered endpoint found for instruction clause.")
@@ -909,9 +897,17 @@ async def generate_workflow_fast_semantic(
             "Please add an API connection and import its OpenAPI specification first."
         )
 
-    cached = get_cached_plan(user_id, safe_prompt, "fast", user_endpoints)
-    if cached:
-        return cached
+    disc_eps: List[Endpoint] = list(discovered_endpoints or [])
+    if not disc_eps:
+        hits = await semantic_search_endpoints(
+            db=db,
+            user_id=user_id,
+            query=safe_prompt,
+            top_k=10,
+            auto_embed_missing=True,
+        )
+        disc_eps = [h["endpoint"] for h in hits if h.get("endpoint")]
+    discovered_ids = {ep.id for ep in disc_eps if ep.id is not None}
 
     cond_parsed = _parse_conditional_prompt(safe_prompt)
     all_steps: List[WorkflowStepPlan] = []
@@ -922,7 +918,12 @@ async def generate_workflow_fast_semantic(
         pre_clauses, cond_raw, true_clauses, false_clauses = cond_parsed
         if pre_clauses:
             pre_steps, history, next_idx = await _build_steps_for_clauses(
-                pre_clauses, db, user_id, user_endpoints, start_index=next_idx
+                pre_clauses,
+                db,
+                user_id,
+                user_endpoints,
+                discovered_ids=discovered_ids,
+                start_index=next_idx,
             )
             all_steps.extend(pre_steps)
 
@@ -953,6 +954,7 @@ async def generate_workflow_fast_semantic(
                 db,
                 user_id,
                 user_endpoints,
+                discovered_ids=discovered_ids,
                 start_index=next_idx,
                 initial_history=history,
                 branch_when="true",
@@ -965,6 +967,7 @@ async def generate_workflow_fast_semantic(
                 db,
                 user_id,
                 user_endpoints,
+                discovered_ids=discovered_ids,
                 start_index=next_idx,
                 initial_history=history,
                 branch_when="false",
@@ -976,7 +979,12 @@ async def generate_workflow_fast_semantic(
         if not clauses:
             clauses = [safe_prompt]
         all_steps, _, _ = await _build_steps_for_clauses(
-            clauses, db, user_id, user_endpoints, start_index=1
+            clauses,
+            db,
+            user_id,
+            user_endpoints,
+            discovered_ids=discovered_ids,
+            start_index=1,
         )
 
     plan = GeneratedWorkflowPlan(
@@ -993,5 +1001,4 @@ async def generate_workflow_fast_semantic(
         strict_endpoints=True,
     )
     nodes, edges, dag_structure = convert_plan_to_react_flow(validated)
-    store_cached_plan(user_id, safe_prompt, "fast", user_endpoints, validated, nodes, edges, dag_structure)
     return validated, nodes, edges, dag_structure

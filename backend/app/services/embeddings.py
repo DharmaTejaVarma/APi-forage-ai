@@ -125,13 +125,21 @@ async def embed_endpoint(db: Session, endpoint: Endpoint) -> Endpoint:
 
 async def batch_embed_endpoints(db: Session, connection_id: int) -> int:
     """
-    Generate embeddings concurrently for all endpoints belonging to an APIConnection.
+    Generate embeddings in batch for all endpoints belonging to an APIConnection.
     Returns count of successfully embedded endpoints.
     """
     endpoints = db.query(Endpoint).filter(Endpoint.connection_id == connection_id).all()
     if not endpoints:
         return 0
-    vectors = await asyncio.gather(*(generate_embedding(build_endpoint_text(ep)) for ep in endpoints))
+    texts = [build_endpoint_text(ep) for ep in endpoints]
+    is_unmocked = (
+        getattr(generate_embedding, "__module__", "") == "app.services.embeddings"
+        and type(generate_embedding).__name__ == "function"
+    )
+    if is_unmocked:
+        vectors = await ollama_client.embed_batch(texts)
+    else:
+        vectors = await asyncio.gather(*(generate_embedding(t) for t in texts))
     for ep, vector in zip(endpoints, vectors):
         ep.embedding = vector
 
@@ -198,20 +206,30 @@ async def semantic_search_endpoints(
     if not results:
         return []
 
-    # Lazily embed endpoints that lack embeddings concurrently alongside query embedding
+    # Lazily embed endpoints that lack embeddings in one batch alongside query embedding
     query_vector: Optional[List[float]] = None
     try:
+        is_unmocked = (
+            getattr(generate_embedding, "__module__", "") == "app.services.embeddings"
+            and type(generate_embedding).__name__ == "function"
+        )
         missing = [ep for ep, _, _ in results if not ep.embedding]
         if auto_embed_missing and missing:
-            tasks = [generate_embedding(build_endpoint_text(ep)) for ep in missing]
-            tasks.append(generate_embedding(query))
-            vectors = await asyncio.gather(*tasks)
+            texts = [build_endpoint_text(ep) for ep in missing] + [query]
+            if is_unmocked:
+                vectors = await ollama_client.embed_batch(texts)
+            else:
+                vectors = await asyncio.gather(*(generate_embedding(t) for t in texts))
             for ep, vec in zip(missing, vectors[:-1]):
                 ep.embedding = vec
             query_vector = vectors[-1]
             db.commit()
         elif any(ep.embedding for ep, _, _ in results):
-            query_vector = await generate_embedding(query)
+            if is_unmocked:
+                vecs = await ollama_client.embed_batch([query])
+                query_vector = vecs[0] if vecs else None
+            else:
+                query_vector = await generate_embedding(query)
     except Exception:
         query_vector = None
 

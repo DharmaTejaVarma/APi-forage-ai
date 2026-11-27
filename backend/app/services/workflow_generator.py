@@ -915,13 +915,6 @@ async def generate_workflow_from_prompt(
             "Please add an API connection and import its OpenAPI specification first."
         )
 
-    from app.services.semantic_planner import get_cached_plan, store_cached_plan
-    cache_engine = f"llm:{model or 'default'}"
-    if not validation_feedback:
-        cached = get_cached_plan(user_id, safe_prompt, cache_engine, all_user_endpoints)
-        if cached:
-            return cached
-
     # 1. Relevant endpoint selection via semantic search (unless already passed by Discovery Agent)
     context_endpoints: List[Endpoint] = list(discovered_endpoints or [])
     if not context_endpoints:
@@ -997,6 +990,5 @@ Generate the validated workflow plan JSON now:"""
 
     # 6. React Flow conversion
     nodes, edges, dag_structure = convert_plan_to_react_flow(validated_plan)
-    store_cached_plan(user_id, safe_prompt, cache_engine, all_user_endpoints, validated_plan, nodes, edges, dag_structure)
 
     return validated_plan, nodes, edges, dag_structure
